@@ -1,0 +1,40 @@
+import { redirect } from "next/navigation"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
+
+export default async function HomePage() {
+const supabase = createServerSupabaseClient()
+
+const {
+  data: { session },
+} = await supabase.auth.getSession()
+
+if (!session) {
+  redirect("/login")
+}
+
+// Get user role from the database
+const { data: userData, error } = await supabase.from("users").select("role").eq("id", session.user.id).single()
+
+if (error || !userData) {
+  // If we can't get the user's role, log them out
+  await supabase.auth.signOut()
+  redirect("/login")
+}
+
+// Redirect based on role
+switch (userData.role) {
+  case "admin":
+    redirect("/admin")
+  case "manager":
+    redirect("/manager")
+  case "finance":
+    redirect("/finance")
+  case "worker":
+    redirect("/worker")
+  case "auditor":
+    redirect("/auditor")
+  default:
+    redirect("/login")
+}
+}
+
