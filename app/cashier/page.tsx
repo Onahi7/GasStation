@@ -539,8 +539,6 @@ export default function CashierDashboard() {
                             </Label>
                             <Input id="net-cash" type="number" placeholder="0.00" className="col-span-3" required />
                           </div>
-                            className="col-span-3" required />
-                          </div>
                           <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="manager" className="text-right">
                               Manager
@@ -703,7 +701,7 @@ export default function CashierDashboard() {
           </Card>
         </div>
       </div>
-  </DashboardLayout>
+    </DashboardLayout>
   )
 }
 

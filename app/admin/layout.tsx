@@ -9,7 +9,7 @@ export default function AdminLayout({
 }) {
   return (
     <AuthWrapper>
-      <DashboardLayout title="Admin Dashboard">{children}</DashboardLayout>
+      <DashboardLayout role="admin">{children}</DashboardLayout>
     </AuthWrapper>
   )
 }

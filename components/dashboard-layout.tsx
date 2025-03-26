@@ -41,7 +41,7 @@ import { signOut } from "@/app/actions/auth"
 
 type DashboardLayoutProps = {
   children: React.ReactNode
-  role?: "worker" | "cashier" | "finance" | "manager" | "admin"
+  role?: "worker" | "cashier" | "finance" | "manager" | "admin" | "auditor"
 }
 
 export function DashboardLayout({ children, role = "worker" }: DashboardLayoutProps) {

@@ -196,5 +196,15 @@ export default function CompliancePage() {
                   <div className="text-2xl font-bold">7 days ago</div>
                   <p className="text-xs text-muted-foreground">Jun 8, 2023</p>
                   <div className="mt-2 flex items-center text-xs">
-                    \
+                    <span className="text-muted-foreground">Next audit in 3 days</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </DashboardLayout>
+  )
+}
 
