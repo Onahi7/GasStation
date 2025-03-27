@@ -460,15 +460,10 @@ export class AuditLogger {
 
     const { data, error } = await supabase
       .from("audit_logs")
-      .select(`
-        action,
-        entity_type,
-        count(*) as count
-      `)
+      .select('action, entity_type, count(*)')
       .eq('terminal_id', terminalId)
       .gte('created_at', startOfDay.toISOString())
       .lte('created_at', endOfDay.toISOString())
-      .groupBy('action, entity_type')
 
     if (error) {
       console.error("Error fetching daily activity summary:", error)
