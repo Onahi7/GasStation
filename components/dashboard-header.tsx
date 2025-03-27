@@ -31,6 +31,9 @@ import {
   SearchIcon,
   AlertTriangleIcon,
   FuelIcon,
+  TruckIcon,
+  UploadIcon,
+  WalletIcon,
 } from "lucide-react"
 import type React from "react"
 import { cn } from "@/lib/utils"
@@ -89,9 +92,10 @@ function OldDashboardHeader() {
     if (pathname?.startsWith("/manager")) {
       return [
         { href: "/manager", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/direct-sales", label: "Direct Sales", icon: <DollarSignIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/creditors", label: "Creditors", icon: <UsersIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/reports", label: "Reports", icon: <FileTextIcon className="h-5 w-5 mr-2" /> },
+        { href: "/manager/drivers", label: "Drivers", icon: <TruckIcon className="h-5 w-5 mr-2" /> },
+        { href: "/manager/deliveries", label: "Deliveries", icon: <UploadIcon className="h-5 w-5 mr-2" /> },
+        { href: "/manager/creditors", label: "Creditors", icon: <WalletIcon className="h-5 w-5 mr-2" /> },
+        { href: "/manager/reports", label: "Reports", icon: <BarChartIcon className="h-5 w-5 mr-2" /> },
       ]
     }
 

@@ -3,279 +3,280 @@
 import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
+import { ElectronicPaymentSchema } from "@/lib/types"
+import { withErrorHandling } from "@/lib/utils"
+import { AuditLogger } from "@/lib/audit-logger"
 
-export async function getElectronicPayments(shiftId?: string, status?: string, terminalId?: string) {
-  const supabase = getSupabaseServerClient()
+export async function recordElectronicPayment(formData: FormData) {
+  return withErrorHandling(
+    async () => {
+      const supabase = getSupabaseServerClient()
 
-  let query = supabase
-    .from("electronic_payments")
-    .select(`
-      *,
-      submitted_by:users!submitted_by(id, full_name),
-      approved_by:users(id, full_name),
-      payment_method:payment_methods(id, name),
-      shift:shifts(id, worker_id, start_time, end_time)
-    `)
-    .order("created_at", { ascending: false })
+      const terminalId = formData.get("terminalId") as string
+      const userId = formData.get("userId") as string
+      const shiftId = formData.get("shiftId") as string
+      const amount = parseFloat(formData.get("amount") as string)
+      const paymentMethod = formData.get("paymentMethod") as string
+      const referenceNumber = formData.get("referenceNumber") as string
+      const notes = formData.get("notes") as string
 
-  if (shiftId) {
-    query = query.eq("shift_id", shiftId)
-  }
+      // Validate active shift
+      const { data: activeShift } = await supabase
+        .from("shifts")
+        .select("id")
+        .eq("id", shiftId)
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .single()
 
-  if (status) {
-    query = query.eq("status", status)
-  }
+      if (!activeShift) {
+        throw new Error("No active shift found")
+      }
 
-  if (terminalId) {
-    query = query.eq("terminal_id", terminalId)
-  }
+      // Check if reference number is unique
+      if (referenceNumber) {
+        const { data: existingPayment } = await supabase
+          .from("electronic_payments")
+          .select("id")
+          .eq("reference_number", referenceNumber)
+          .maybeSingle()
 
-  const { data, error } = await query
+        if (existingPayment) {
+          throw new Error("Payment with this reference number already exists")
+        }
+      }
 
-  if (error) {
-    throw new Error(`Error fetching electronic payments: ${error.message}`)
-  }
+      const paymentData = {
+        terminal_id: terminalId,
+        user_id: userId,
+        shift_id: shiftId,
+        amount,
+        payment_method: paymentMethod,
+        reference_number: referenceNumber,
+        payment_time: new Date().toISOString(),
+        verification_status: "pending",
+        notes,
+      }
 
-  return data
+      // Validate payment data
+      ElectronicPaymentSchema.parse(paymentData)
+
+      const { data: payment, error } = await supabase
+        .from("electronic_payments")
+        .insert(paymentData)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // Log audit entry
+      await AuditLogger.log(
+        "create",
+        "electronic_payments",
+        payment.id,
+        userId,
+        {
+          amount,
+          paymentMethod,
+          referenceNumber,
+          shiftId
+        }
+      )
+
+      revalidatePath("/worker")
+      return payment
+    },
+    {
+      validation: ElectronicPaymentSchema,
+      data: formData,
+    }
+  )
 }
 
-export async function getElectronicPaymentById(id: string) {
-  const supabase = getSupabaseServerClient()
+export async function verifyElectronicPayment(formData: FormData) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
 
-  const { data, error } = await supabase
-    .from("electronic_payments")
-    .select(`
-      *,
-      submitted_by:users!submitted_by(id, full_name),
-      approved_by:users(id, full_name),
-      payment_method:payment_methods(id, name),
-      shift:shifts(id, worker_id, start_time, end_time)
-    `)
-    .eq("id", id)
-    .single()
+    const paymentId = formData.get("paymentId") as string
+    const userId = formData.get("userId") as string
+    const status = formData.get("status") as "verified" | "rejected"
+    const notes = formData.get("notes") as string
 
-  if (error) {
-    throw new Error(`Error fetching electronic payment: ${error.message}`)
-  }
+    // Get payment to validate
+    const { data: payment, error: paymentError } = await supabase
+      .from("electronic_payments")
+      .select("*")
+      .eq("id", paymentId)
+      .eq("verification_status", "pending")
+      .single()
 
-  return data
-}
+    if (paymentError || !payment) {
+      throw new Error("Pending electronic payment not found")
+    }
 
-export async function createElectronicPayment(formData: FormData) {
-  const supabase = getSupabaseServerClient()
+    const { error: updateError } = await supabase
+      .from("electronic_payments")
+      .update({
+        verification_status: status,
+        notes: notes || payment.notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", paymentId)
 
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    if (updateError) throw updateError
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+    // Log audit entry
+    await AuditLogger.log(
+      "update",
+      "electronic_payments",
+      paymentId,
+      userId,
+      { status, notes }
+    )
 
-  // Get the user's terminal
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id")
-    .eq("id", user.id)
-    .single()
-
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
-
-  const shiftId = formData.get("shift_id") as string
-  const paymentMethodId = formData.get("payment_method_id") as string
-  const amount = Number.parseFloat(formData.get("amount") as string)
-  const referenceNumber = formData.get("reference_number") as string
-  const customerName = formData.get("customer_name") as string
-  const notes = (formData.get("notes") as string) || null
-
-  // Validate the amount
-  if (isNaN(amount) || amount <= 0) {
-    throw new Error("Invalid amount")
-  }
-
-  // Check if the payment method requires approval
-  const { data: paymentMethod, error: paymentMethodError } = await supabase
-    .from("payment_methods")
-    .select("requires_approval")
-    .eq("id", paymentMethodId)
-    .single()
-
-  if (paymentMethodError) {
-    throw new Error(`Error fetching payment method: ${paymentMethodError.message}`)
-  }
-
-  const status = paymentMethod.requires_approval ? "pending" : "approved"
-  const approvalTime = paymentMethod.requires_approval ? null : new Date().toISOString()
-  const approvedBy = paymentMethod.requires_approval ? null : user.id
-
-  // Create the electronic payment
-  const { data, error } = await supabase
-    .from("electronic_payments")
-    .insert({
-      shift_id: shiftId,
-      terminal_id: userData.terminal_id,
-      submitted_by: user.id,
-      payment_method_id: paymentMethodId,
-      amount,
-      reference_number: referenceNumber,
-      customer_name: customerName,
-      approved_by: approvedBy,
-      approval_time: approvalTime,
-      status,
-      notes,
-    })
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error creating electronic payment: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "create",
-    entity_type: "electronic_payments",
-    entity_id: data.id,
-    details: { shift_id: shiftId, payment_method_id: paymentMethodId, amount, status },
+    revalidatePath("/cashier/payments")
+    return { status }
   })
-
-  revalidatePath("/worker")
-  redirect("/worker")
 }
 
-export async function approveElectronicPayment(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
+export async function getElectronicPayments(options: {
+  terminalId?: string
+  userId?: string
+  shiftId?: string
+  status?: "pending" | "verified" | "rejected"
+  paymentMethod?: "pos" | "transfer" | "other"
+  startDate?: Date
+  endDate?: Date
+}) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+    const { terminalId, userId, shiftId, status, paymentMethod, startDate, endDate } = options
 
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    let query = supabase
+      .from("electronic_payments")
+      .select(`
+        *,
+        user:users(full_name),
+        shift:shifts(start_time, end_time)
+      `)
+      .order("payment_time", { ascending: false })
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+    if (terminalId) {
+      query = query.eq("terminal_id", terminalId)
+    }
+    if (userId) {
+      query = query.eq("user_id", userId)
+    }
+    if (shiftId) {
+      query = query.eq("shift_id", shiftId)
+    }
+    if (status) {
+      query = query.eq("verification_status", status)
+    }
+    if (paymentMethod) {
+      query = query.eq("payment_method", paymentMethod)
+    }
+    if (startDate) {
+      query = query.gte("payment_time", startDate.toISOString())
+    }
+    if (endDate) {
+      query = query.lte("payment_time", endDate.toISOString())
+    }
 
-  // Get the user's terminal and role
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id, role")
-    .eq("id", user.id)
-    .single()
+    const { data, error } = await query
+    if (error) throw error
 
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
-
-  // Only managers and finance staff can approve payments
-  if (userData.role !== "manager" && userData.role !== "finance") {
-    throw new Error("Unauthorized: Only managers and finance staff can approve payments")
-  }
-
-  const notes = (formData.get("notes") as string) || null
-
-  // Update the electronic payment
-  const { data, error } = await supabase
-    .from("electronic_payments")
-    .update({
-      approved_by: user.id,
-      approval_time: new Date().toISOString(),
-      status: "approved",
-      notes: notes ? `${notes} (Approved by ${user.email})` : `Approved by ${user.email}`,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("terminal_id", userData.terminal_id)
-    .eq("status", "pending")
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error approving electronic payment: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "approve",
-    entity_type: "electronic_payments",
-    entity_id: data.id,
+    return data
   })
-
-  revalidatePath("/finance")
-  redirect("/finance")
 }
 
-export async function rejectElectronicPayment(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
+export async function getPaymentSummary(paymentId: string) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
 
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    const { data: payment, error } = await supabase
+      .from("electronic_payments")
+      .select(`
+        *,
+        user:users(full_name),
+        shift:shifts(start_time, end_time),
+        terminal:terminals(name)
+      `)
+      .eq("id", paymentId)
+      .single()
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+    if (error) throw error
 
-  // Get the user's terminal and role
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id, role")
-    .eq("id", user.id)
-    .single()
+    // Get other payments with the same reference number
+    let relatedPayments = []
+    if (payment.reference_number) {
+      const { data: related } = await supabase
+        .from("electronic_payments")
+        .select("*")
+        .eq("reference_number", payment.reference_number)
+        .neq("id", paymentId)
 
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
+      relatedPayments = related || []
+    }
 
-  // Only managers and finance staff can reject payments
-  if (userData.role !== "manager" && userData.role !== "finance") {
-    throw new Error("Unauthorized: Only managers and finance staff can reject payments")
-  }
-
-  const reason = formData.get("reason") as string
-
-  if (!reason) {
-    throw new Error("Rejection reason is required")
-  }
-
-  // Update the electronic payment
-  const { data, error } = await supabase
-    .from("electronic_payments")
-    .update({
-      approved_by: user.id,
-      approval_time: new Date().toISOString(),
-      status: "rejected",
-      notes: `Rejected: ${reason} (by ${user.email})`,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("terminal_id", userData.terminal_id)
-    .eq("status", "pending")
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error rejecting electronic payment: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "reject",
-    entity_type: "electronic_payments",
-    entity_id: data.id,
-    details: { reason },
+    return {
+      payment,
+      relatedPayments,
+    }
   })
+}
 
-  revalidatePath("/finance")
-  redirect("/finance")
+export async function getDailyElectronicPaymentSummary(terminalId: string, date: Date) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+    
+    const startOfDay = new Date(date)
+    startOfDay.setHours(0, 0, 0, 0)
+    
+    const endOfDay = new Date(date)
+    endOfDay.setHours(23, 59, 59, 999)
+
+    const { data, error } = await supabase
+      .from("electronic_payments")
+      .select(`
+        payment_method,
+        verification_status,
+        count(*),
+        sum(amount)
+      `)
+      .eq("terminal_id", terminalId)
+      .gte("payment_time", startOfDay.toISOString())
+      .lte("payment_time", endOfDay.toISOString())
+      .groupBy("payment_method, verification_status")
+
+    if (error) throw error
+
+    const summary = {
+      pos: {
+        pending: { count: 0, amount: 0 },
+        verified: { count: 0, amount: 0 },
+        rejected: { count: 0, amount: 0 },
+      },
+      transfer: {
+        pending: { count: 0, amount: 0 },
+        verified: { count: 0, amount: 0 },
+        rejected: { count: 0, amount: 0 },
+      },
+      other: {
+        pending: { count: 0, amount: 0 },
+        verified: { count: 0, amount: 0 },
+        rejected: { count: 0, amount: 0 },
+      },
+    }
+
+    data?.forEach((row: any) => {
+      summary[row.payment_method][row.verification_status] = {
+        count: parseInt(row.count),
+        amount: parseFloat(row.sum),
+      }
+    })
+
+    return summary
+  })
 }
 

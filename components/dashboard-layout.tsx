@@ -41,7 +41,7 @@ import { signOut } from "@/app/actions/auth"
 
 type DashboardLayoutProps = {
   children: React.ReactNode
-  role?: "worker" | "cashier" | "finance" | "manager" | "admin" | "auditor"
+  role?: "worker" | "cashier" | "finance" | "manager" | "admin" | "auditor" | "driver"
 }
 
 export function DashboardLayout({ children, role = "worker" }: DashboardLayoutProps) {
@@ -64,6 +64,13 @@ export function DashboardLayout({ children, role = "worker" }: DashboardLayoutPr
 
   const getNavItems = () => {
     switch (userRole) {
+      case "driver":
+        return [
+          { href: "/driver", label: "Dashboard", icon: Home },
+          { href: "/driver/deliveries", label: "My Deliveries", icon: GasPump },
+          { href: "/driver/performance", label: "Performance", icon: BarChart3 },
+          { href: "/driver/profile", label: "Profile", icon: User },
+        ]
       case "worker":
         return [
           { href: "/worker", label: "Dashboard", icon: Home },

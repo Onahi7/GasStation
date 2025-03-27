@@ -298,6 +298,44 @@ export interface Database {
           updated_at?: string
         }
       }
+      audit_logs: {
+        Row: {
+          id: string
+          terminal_id?: string
+          user_id: string
+          action: string
+          entity_type: string
+          entity_id: string
+          details?: Json
+          ip_address?: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          terminal_id?: string
+          user_id: string
+          action: string
+          entity_type: string
+          entity_id: string
+          details?: Json
+          ip_address?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          terminal_id?: string
+          user_id?: string
+          action?: string
+          entity_type?: string
+          entity_id?: string
+          details?: Json
+          ip_address?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never

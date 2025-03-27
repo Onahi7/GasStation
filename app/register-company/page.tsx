@@ -40,10 +40,22 @@ export default function RegisterCompanyPage() {
   // Create a Supabase client directly in the component
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (currentStep === 1) {
       if (!companyName || !companyEmail) {
         setError("Company name and email are required")
+        return
+      }
+
+      // Check if company email already exists
+      const { data: existingCompany } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("email", companyEmail)
+        .single()
+
+      if (existingCompany) {
+        setError("A company with this email already exists")
         return
       }
     } else if (currentStep === 2) {
@@ -71,6 +83,19 @@ export default function RegisterCompanyPage() {
     setError(null)
 
     try {
+      // Check if company email already exists
+      const { data: existingCompany, error: checkError } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("email", companyEmail)
+        .single()
+
+      if (existingCompany) {
+        setError("A company with this email already exists")
+        setIsLoading(false)
+        return
+      }
+
       // 1. Register the admin user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: adminEmail,

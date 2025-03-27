@@ -3,202 +3,220 @@
 import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
+import { CashSubmissionSchema } from "@/lib/types"
+import { withErrorHandling } from "@/lib/utils"
+import { AuditLogger } from "@/lib/audit-logger"
 
-export async function getCashSubmissions(shiftId?: string, workerId?: string, terminalId?: string) {
-  const supabase = getSupabaseServerClient()
+export async function submitCash(formData: FormData) {
+  return withErrorHandling(
+    async () => {
+      const supabase = getSupabaseServerClient()
 
-  let query = supabase
-    .from("cash_submissions")
-    .select(`
-      *,
-      submitted_by:users!submitted_by(id, full_name),
-      received_by:users!received_by(id, full_name),
-      shift:shifts(id, worker_id, start_time, end_time)
-    `)
-    .order("submission_date", { ascending: false })
+      const terminalId = formData.get("terminalId") as string
+      const userId = formData.get("userId") as string
+      const shiftId = formData.get("shiftId") as string
+      const amount = parseFloat(formData.get("amount") as string)
+      const notes = formData.get("notes") as string
 
-  if (shiftId) {
-    query = query.eq("shift_id", shiftId)
-  }
+      // Get active shift to validate
+      const { data: activeShift } = await supabase
+        .from("shifts")
+        .select("id")
+        .eq("id", shiftId)
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .single()
 
-  if (workerId) {
-    query = query.eq("submitted_by", workerId)
-  }
+      if (!activeShift) {
+        throw new Error("No active shift found")
+      }
 
-  if (terminalId) {
-    query = query.eq("terminal_id", terminalId)
-  }
+      const submissionData = {
+        terminal_id: terminalId,
+        user_id: userId,
+        shift_id: shiftId,
+        amount,
+        submission_time: new Date().toISOString(),
+        verification_status: "pending",
+        notes,
+      }
 
-  const { data, error } = await query
+      // Validate submission data
+      CashSubmissionSchema.parse(submissionData)
 
-  if (error) {
-    throw new Error(`Error fetching cash submissions: ${error.message}`)
-  }
+      const { data: submission, error } = await supabase
+        .from("cash_submissions")
+        .insert(submissionData)
+        .select()
+        .single()
 
-  return data
+      if (error) throw error
+
+      // Log audit entry
+      await AuditLogger.log(
+        "create",
+        "cash_submissions",
+        submission.id,
+        userId,
+        { amount, shiftId }
+      )
+
+      revalidatePath("/worker")
+      return submission
+    },
+    {
+      validation: CashSubmissionSchema,
+      data: formData,
+    }
+  )
 }
 
-export async function getCashSubmissionById(id: string) {
-  const supabase = getSupabaseServerClient()
+export async function verifyCashSubmission(formData: FormData) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
 
-  const { data, error } = await supabase
-    .from("cash_submissions")
-    .select(`
-      *,
-      submitted_by:users!submitted_by(id, full_name),
-      received_by:users!received_by(id, full_name),
-      shift:shifts(id, worker_id, start_time, end_time)
-    `)
-    .eq("id", id)
-    .single()
+    const submissionId = formData.get("submissionId") as string
+    const userId = formData.get("userId") as string
+    const status = formData.get("status") as "verified" | "discrepancy"
+    const notes = formData.get("notes") as string
 
-  if (error) {
-    throw new Error(`Error fetching cash submission: ${error.message}`)
-  }
+    // Get submission to validate
+    const { data: submission, error: submissionError } = await supabase
+      .from("cash_submissions")
+      .select("*")
+      .eq("id", submissionId)
+      .eq("verification_status", "pending")
+      .single()
 
-  return data
-}
+    if (submissionError || !submission) {
+      throw new Error("Pending cash submission not found")
+    }
 
-export async function createCashSubmission(formData: FormData) {
-  const supabase = getSupabaseServerClient()
+    const { error: updateError } = await supabase
+      .from("cash_submissions")
+      .update({
+        verification_status: status,
+        received_by: userId,
+        notes: notes || submission.notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", submissionId)
 
-  // Get the current user (worker)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    if (updateError) throw updateError
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+    // Log audit entry
+    await AuditLogger.log(
+      "update",
+      "cash_submissions",
+      submissionId,
+      userId,
+      { status, notes }
+    )
 
-  // Get the user's terminal
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id, role")
-    .eq("id", user.id)
-    .single()
-
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
-
-  const shiftId = formData.get("shift_id") as string
-  const amount = Number.parseFloat(formData.get("amount") as string)
-  const notes = (formData.get("notes") as string) || null
-
-  // Validate the amount
-  if (isNaN(amount) || amount <= 0) {
-    throw new Error("Invalid amount")
-  }
-
-  // Check if the shift exists and is active
-  const { data: shift, error: shiftError } = await supabase
-    .from("shifts")
-    .select("*")
-    .eq("id", shiftId)
-    .eq("status", "active")
-    .single()
-
-  if (shiftError) {
-    throw new Error(`Error fetching shift: ${shiftError.message}`)
-  }
-
-  // Calculate expected amount based on meter readings
-  const expectedAmount = null
-  const discrepancy = null
-
-  // Create the cash submission
-  const { data, error } = await supabase
-    .from("cash_submissions")
-    .insert({
-      shift_id: shiftId,
-      terminal_id: userData.terminal_id,
-      submitted_by: user.id,
-      amount,
-      expected_amount: expectedAmount,
-      discrepancy,
-      notes,
-      submission_date: new Date().toISOString(),
-      status: "submitted",
-    })
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error creating cash submission: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "create",
-    entity_type: "cash_submissions",
-    entity_id: data.id,
-    details: { shift_id: shiftId, amount },
+    revalidatePath("/cashier/submissions")
+    return { status }
   })
-
-  revalidatePath("/worker")
-  redirect("/worker")
 }
 
-export async function receiveCashSubmission(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
+export async function getCashSubmissions(options: {
+  userId?: string
+  shiftId?: string
+  status?: "pending" | "verified" | "discrepancy"
+  startDate?: Date
+  endDate?: Date
+}) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+    const { userId, shiftId, status, startDate, endDate } = options
 
-  // Get the current user (cashier)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    let query = supabase
+      .from("cash_submissions")
+      .select(`
+        *,
+        user:users!user_id(full_name),
+        receiver:users!received_by(full_name),
+        shift:shifts(start_time, end_time)
+      `)
+      .order("submission_time", { ascending: false })
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+    if (userId) {
+      query = query.eq("user_id", userId)
+    }
+    if (shiftId) {
+      query = query.eq("shift_id", shiftId)
+    }
+    if (status) {
+      query = query.eq("verification_status", status)
+    }
+    if (startDate) {
+      query = query.gte("submission_time", startDate.toISOString())
+    }
+    if (endDate) {
+      query = query.lte("submission_time", endDate.toISOString())
+    }
 
-  // Get the user's terminal and verify role
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id, role")
-    .eq("id", user.id)
-    .single()
+    const { data, error } = await query
+    if (error) throw error
 
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
-
-  if (userData.role !== "cashier" && userData.role !== "finance" && userData.role !== "manager") {
-    throw new Error("Unauthorized: Only cashiers, finance staff, or managers can receive cash submissions")
-  }
-
-  const notes = (formData.get("notes") as string) || null
-
-  // Update the cash submission
-  const { data, error } = await supabase
-    .from("cash_submissions")
-    .update({
-      received_by: user.id,
-      status: "verified",
-      notes: notes ? `${notes} (Received by ${user.email})` : `Received by ${user.email}`,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("terminal_id", userData.terminal_id)
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error receiving cash submission: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "receive",
-    entity_type: "cash_submissions",
-    entity_id: data.id,
+    return data
   })
+}
 
-  revalidatePath("/cashier")
-  redirect("/cashier")
+export async function getShiftSubmissions(shiftId: string) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+
+    // Get shift details first
+    const { data: shift, error: shiftError } = await supabase
+      .from("shifts")
+      .select(`
+        *,
+        user:users(full_name),
+        meter_readings(
+          opening_reading,
+          closing_reading,
+          liters_sold,
+          expected_amount
+        ),
+        cash_submissions(
+          amount,
+          verification_status
+        ),
+        electronic_payments(
+          amount,
+          payment_method,
+          verification_status
+        )
+      `)
+      .eq("id", shiftId)
+      .single()
+
+    if (shiftError || !shift) {
+      throw new Error("Shift not found")
+    }
+
+    // Calculate totals
+    const totalExpectedCash = shift.meter_readings.reduce((total, reading) => 
+      total + (reading.expected_amount || 0), 0)
+    
+    const totalSubmittedCash = shift.cash_submissions.reduce((total, submission) => 
+      total + submission.amount, 0)
+    
+    const totalElectronicPayments = shift.electronic_payments.reduce((total, payment) => 
+      total + payment.amount, 0)
+
+    const cashVariance = totalSubmittedCash - totalExpectedCash
+
+    return {
+      shift,
+      totals: {
+        expectedCash: totalExpectedCash,
+        submittedCash: totalSubmittedCash,
+        electronicPayments: totalElectronicPayments,
+        totalCollected: totalSubmittedCash + totalElectronicPayments,
+        cashVariance,
+      }
+    }
+  })
 }
 

@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FuelIcon as GasPump, Droplet, CreditCard, AlertTriangle, Truck, Plus, Download, RefreshCw } from "lucide-react"
+import { FuelIcon as GasPump, Droplet, CreditCard, AlertTriangle, Truck, Plus, Download, RefreshCw, DollarSign, Users, FileText } from "lucide-react"
 
 export default function ManagerDashboard() {
   const [isLoading, setIsLoading] = useState(false)
@@ -104,6 +104,64 @@ export default function ManagerDashboard() {
             icon={<CreditCard className="h-4 w-4" />}
             trend={{ value: 8, isPositive: false }}
           />
+        </div>
+
+        <div className="p-4 md:p-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <StatCard 
+              title="Total Sales Today" 
+              value="₦721,000" 
+              description="+20.1% from yesterday"
+              icon={<DollarSign className="h-4 w-4" />}
+            />
+            <StatCard 
+              title="Active Drivers"
+              value="5"
+              description="3 deliveries in progress"
+              icon={<Truck className="h-4 w-4" />}
+            />
+            <StatCard 
+              title="Stock Level"
+              value="85%"
+              description="Last updated 5 mins ago"
+              icon={<Droplet className="h-4 w-4" />}
+            />
+            <StatCard 
+              title="Creditor Balance"
+              value="₦1.2M"
+              description="4 accounts over limit"
+              icon={<AlertTriangle className="h-4 w-4" />}
+            />
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            <Card className="lg:col-span-4">
+              {/* ...existing sales chart... */}
+            </Card>
+            
+            <Card className="lg:col-span-3">
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>Common management tasks</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2">
+                  <Button className="w-full justify-start" onClick={() => window.location.href = "/manager/deliveries"}>
+                    <Truck className="mr-2 h-4 w-4" />
+                    New Delivery Waybill
+                  </Button>
+                  <Button className="w-full justify-start" onClick={() => window.location.href = "/manager/drivers"}>
+                    <Users className="mr-2 h-4 w-4" />
+                    Manage Drivers
+                  </Button>
+                  <Button className="w-full justify-start" variant="outline" onClick={() => window.location.href = "/manager/reports"}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    View Reports
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <Tabs defaultValue="tanks">

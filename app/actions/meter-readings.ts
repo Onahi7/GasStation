@@ -3,181 +3,246 @@
 import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
-
-export async function getMeterReadings(shiftId?: string, nozzleId?: string, terminalId?: string) {
-  const supabase = getSupabaseServerClient()
-
-  let query = supabase
-    .from("meter_readings")
-    .select(`
-      *,
-      nozzle:nozzles(id, name, pump_id),
-      recorded_by:users(id, full_name)
-    `)
-    .order("reading_time", { ascending: false })
-
-  if (shiftId) {
-    query = query.eq("shift_id", shiftId)
-  }
-
-  if (nozzleId) {
-    query = query.eq("nozzle_id", nozzleId)
-  }
-
-  if (terminalId) {
-    const { data: nozzles } = await supabase.from("nozzles").select("id").eq("terminal_id", terminalId)
-
-    if (nozzles && nozzles.length > 0) {
-      const nozzleIds = nozzles.map((n) => n.id)
-      query = query.in("nozzle_id", nozzleIds)
-    }
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    throw new Error(`Error fetching meter readings: ${error.message}`)
-  }
-
-  return data
-}
-
-export async function getMeterReadingById(id: string) {
-  const supabase = getSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("meter_readings")
-    .select(`
-      *,
-      nozzle:nozzles(id, name, pump_id),
-      recorded_by:users(id, full_name)
-    `)
-    .eq("id", id)
-    .single()
-
-  if (error) {
-    throw new Error(`Error fetching meter reading: ${error.message}`)
-  }
-
-  return data
-}
+import { MeterReadingSchema } from "@/lib/types"
+import { withErrorHandling } from "@/lib/utils"
+import { AuditLogger } from "@/lib/audit-logger"
 
 export async function createMeterReading(formData: FormData) {
-  const supabase = getSupabaseServerClient()
+  return withErrorHandling(
+    async () => {
+      const supabase = getSupabaseServerClient()
 
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+      const terminalId = formData.get("terminalId") as string
+      const pumpId = formData.get("pumpId") as string
+      const userId = formData.get("userId") as string
+      const shiftId = formData.get("shiftId") as string
+      const openingReading = parseFloat(formData.get("openingReading") as string)
 
-  if (!user) {
-    throw new Error("User not authenticated")
-  }
+      // Validate if there's already an open reading for this pump in this shift
+      const { data: existingReading } = await supabase
+        .from("meter_readings")
+        .select("*")
+        .eq("pump_id", pumpId)
+        .eq("shift_id", shiftId)
+        .eq("status", "open")
+        .maybeSingle()
 
-  // Get the user's terminal
-  const { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("terminal_id")
-    .eq("id", user.id)
-    .single()
+      if (existingReading) {
+        throw new Error("There is already an open meter reading for this pump")
+      }
 
-  if (userError || !userData?.terminal_id) {
-    throw new Error("User not assigned to a terminal")
-  }
+      // Get the last reading for this pump to validate
+      const { data: lastReading } = await supabase
+        .from("meter_readings")
+        .select("closing_reading")
+        .eq("pump_id", pumpId)
+        .order("reading_time", { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-  const shiftId = formData.get("shift_id") as string
-  const nozzleId = formData.get("nozzle_id") as string
-  const readingType = formData.get("reading_type") as string
-  const readingValue = Number.parseFloat(formData.get("reading_value") as string)
+      if (lastReading && openingReading < lastReading.closing_reading) {
+        throw new Error("Opening reading cannot be less than the last closing reading")
+      }
 
-  // Validate the reading type
-  if (readingType !== "opening" && readingType !== "closing") {
-    throw new Error("Invalid reading type")
-  }
+      const readingData = {
+        terminal_id: terminalId,
+        pump_id: pumpId,
+        user_id: userId,
+        shift_id: shiftId,
+        opening_reading: openingReading,
+        reading_time: new Date().toISOString(),
+        status: "open",
+      }
 
-  // Check if there's already a reading of this type for this nozzle in this shift
-  const { data: existingReading, error: checkError } = await supabase
-    .from("meter_readings")
-    .select("id")
-    .eq("shift_id", shiftId)
-    .eq("nozzle_id", nozzleId)
-    .eq("reading_type", readingType)
-    .maybeSingle()
+      // Validate reading data
+      MeterReadingSchema.parse(readingData)
 
-  if (checkError) {
-    throw new Error(`Error checking existing readings: ${checkError.message}`)
-  }
+      const { data: reading, error } = await supabase
+        .from("meter_readings")
+        .insert(readingData)
+        .select()
+        .single()
 
-  if (existingReading) {
-    throw new Error(`A ${readingType} reading already exists for this nozzle in this shift`)
-  }
+      if (error) throw error
 
-  // For closing readings, check if there's an opening reading and if the closing value is greater
-  if (readingType === "closing") {
-    const { data: openingReading, error: openingError } = await supabase
+      // Log audit entry
+      await AuditLogger.log(
+        "meter_reading",
+        "meter_readings",
+        reading.id,
+        userId,
+        { pumpId, openingReading }
+      )
+
+      revalidatePath("/worker/readings")
+      return reading
+    },
+    {
+      validation: MeterReadingSchema,
+      data: formData,
+    }
+  )
+}
+
+export async function closeMeterReading(formData: FormData) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+
+    const readingId = formData.get("readingId") as string
+    const userId = formData.get("userId") as string
+    const closingReading = parseFloat(formData.get("closingReading") as string)
+
+    // Get current reading to validate
+    const { data: currentReading, error: readingError } = await supabase
       .from("meter_readings")
-      .select("reading_value")
-      .eq("shift_id", shiftId)
-      .eq("nozzle_id", nozzleId)
-      .eq("reading_type", "opening")
-      .maybeSingle()
+      .select("*, pump:pumps(price_per_liter)")
+      .eq("id", readingId)
+      .eq("status", "open")
+      .single()
 
-    if (openingError) {
-      throw new Error(`Error checking opening reading: ${openingError.message}`)
+    if (readingError || !currentReading) {
+      throw new Error("Open meter reading not found")
     }
 
-    if (!openingReading) {
-      throw new Error("No opening reading found for this nozzle in this shift")
+    if (closingReading <= currentReading.opening_reading) {
+      throw new Error("Closing reading must be greater than opening reading")
     }
 
-    if (readingValue < openingReading.reading_value) {
-      throw new Error("Closing reading must be greater than or equal to opening reading")
-    }
-  }
+    const litersSold = closingReading - currentReading.opening_reading
+    const expectedAmount = litersSold * currentReading.pump.price_per_liter
 
-  const { data, error } = await supabase
-    .from("meter_readings")
-    .insert({
-      shift_id: shiftId,
-      nozzle_id: nozzleId,
-      reading_type: readingType,
-      reading_value: readingValue,
-      recorded_by: user.id,
-      reading_time: new Date().toISOString(),
-    })
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error creating meter reading: ${error.message}`)
-  }
-
-  // If this is a closing reading, update the nozzle's current reading
-  if (readingType === "closing") {
     const { error: updateError } = await supabase
-      .from("nozzles")
+      .from("meter_readings")
       .update({
-        current_reading: readingValue,
+        closing_reading: closingReading,
+        liters_sold: litersSold,
+        expected_amount: expectedAmount,
+        status: "closed",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", nozzleId)
+      .eq("id", readingId)
 
-    if (updateError) {
-      throw new Error(`Error updating nozzle reading: ${updateError.message}`)
-    }
-  }
+    if (updateError) throw updateError
 
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    terminal_id: userData.terminal_id,
-    user_id: user.id,
-    action: "create",
-    entity_type: "meter_readings",
-    entity_id: data.id,
-    details: { shift_id: shiftId, nozzle_id: nozzleId, reading_type: readingType, reading_value: readingValue },
+    // Log audit entry
+    await AuditLogger.log(
+      "meter_reading",
+      "meter_readings",
+      readingId,
+      userId,
+      {
+        closingReading,
+        litersSold,
+        expectedAmount,
+      }
+    )
+
+    revalidatePath("/worker/readings")
+    return { litersSold, expectedAmount }
   })
+}
 
-  revalidatePath("/worker/readings")
-  redirect("/worker/readings")
+export async function verifyMeterReading(formData: FormData) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+
+    const readingId = formData.get("readingId") as string
+    const userId = formData.get("userId") as string
+
+    const { error } = await supabase
+      .from("meter_readings")
+      .update({
+        status: "verified",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", readingId)
+      .eq("status", "closed")
+
+    if (error) throw error
+
+    // Log audit entry
+    await AuditLogger.log(
+      "meter_reading",
+      "meter_readings",
+      readingId,
+      userId,
+      { action: "verify" }
+    )
+
+    revalidatePath("/manager/readings")
+  })
+}
+
+export async function getMeterReadings(options: {
+  pumpId?: string
+  shiftId?: string
+  userId?: string
+  status?: "open" | "closed" | "verified"
+  startDate?: Date
+  endDate?: Date
+}) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+    const { pumpId, shiftId, userId, status, startDate, endDate } = options
+
+    let query = supabase
+      .from("meter_readings")
+      .select(`
+        *,
+        pump:pumps(name, product),
+        user:users(full_name)
+      `)
+      .order("reading_time", { ascending: false })
+
+    if (pumpId) {
+      query = query.eq("pump_id", pumpId)
+    }
+    if (shiftId) {
+      query = query.eq("shift_id", shiftId)
+    }
+    if (userId) {
+      query = query.eq("user_id", userId)
+    }
+    if (status) {
+      query = query.eq("status", status)
+    }
+    if (startDate) {
+      query = query.gte("reading_time", startDate.toISOString())
+    }
+    if (endDate) {
+      query = query.lte("reading_time", endDate.toISOString())
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+
+    return data
+  })
+}
+
+export async function getReadingSummary(readingId: string) {
+  return withErrorHandling(async () => {
+    const supabase = getSupabaseServerClient()
+
+    const { data, error } = await supabase
+      .from("meter_readings")
+      .select(`
+        *,
+        pump:pumps(name, product, price_per_liter),
+        user:users(full_name),
+        shift:shifts(start_time, end_time)
+      `)
+      .eq("id", readingId)
+      .single()
+
+    if (error) throw error
+
+    return {
+      ...data,
+      litersSold: data.closing_reading ? data.closing_reading - data.opening_reading : 0,
+      expectedAmount: data.closing_reading ? 
+        (data.closing_reading - data.opening_reading) * data.pump.price_per_liter : 0,
+    }
+  })
 }
 

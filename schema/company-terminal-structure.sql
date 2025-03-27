@@ -67,3 +67,72 @@ ALTER TABLE users ALTER COLUMN role TYPE company_role USING
     ELSE 'terminal_worker'::company_role
   END;
 
+-- Employee Salary table
+CREATE TABLE employee_salaries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  employee_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  base_salary NUMERIC NOT NULL,
+  effective_date DATE NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Salary Adjustments table (for tracking shortages/excesses)
+CREATE TABLE salary_adjustments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  employee_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  amount NUMERIC NOT NULL,
+  adjustment_type TEXT NOT NULL CHECK (adjustment_type IN ('shortage', 'excess', 'bonus', 'deduction')),
+  reason TEXT NOT NULL,
+  reference_id UUID,  -- Can reference a delivery_id or shift_id
+  reference_type TEXT CHECK (reference_type IN ('delivery', 'shift')),
+  adjusted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  adjustment_date DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Trucks table
+CREATE TABLE trucks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+  registration_number TEXT NOT NULL UNIQUE,
+  capacity NUMERIC NOT NULL,
+  maintenance_status TEXT NOT NULL DEFAULT 'operational' CHECK (maintenance_status IN ('operational', 'maintenance', 'out-of-service')),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Delivery Waybills table
+CREATE TABLE delivery_waybills (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+  truck_id UUID REFERENCES trucks(id) ON DELETE SET NULL,
+  driver_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  terminal_id UUID REFERENCES terminals(id) ON DELETE SET NULL,
+  waybill_number TEXT NOT NULL UNIQUE,
+  expected_volume NUMERIC NOT NULL,
+  delivered_volume NUMERIC,
+  product_type TEXT NOT NULL CHECK (product_type IN ('PMS', 'AGO', 'DPK')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_transit', 'delivered', 'verified', 'disputed')),
+  departure_time TIMESTAMPTZ,
+  arrival_time TIMESTAMPTZ,
+  waybill_image_url TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Add driver role to company_role enum
+ALTER TYPE company_role ADD VALUE 'terminal_driver' AFTER 'terminal_worker';
+
+-- Create indexes for better performance
+CREATE INDEX idx_employee_salaries_employee_id ON employee_salaries(employee_id);
+CREATE INDEX idx_salary_adjustments_employee_id ON salary_adjustments(employee_id);
+CREATE INDEX idx_delivery_waybills_driver_id ON delivery_waybills(driver_id);
+CREATE INDEX idx_delivery_waybills_truck_id ON delivery_waybills(truck_id);
+CREATE INDEX idx_delivery_waybills_terminal_id ON delivery_waybills(terminal_id);
+CREATE INDEX idx_trucks_company_id ON trucks(company_id);
+

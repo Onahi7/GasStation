@@ -1,122 +1,119 @@
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
-import { createServerClient } from "@supabase/ssr"
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  const requestUrl = new URL(request.url)
-  const path = requestUrl.pathname
+const PUBLIC_ROUTES = ['/', '/login', '/register', '/register-company']
+const ROLE_ROUTES = {
+  admin: ['/admin'],
+  manager: ['/manager'],
+  worker: ['/worker'],
+  finance: ['/finance'],
+  auditor: ['/auditor'],
+  cashier: ['/cashier'],
+  'company-admin': ['/company-admin']
+}
 
-  // Public routes that don't require authentication
-  const publicRoutes = ["/", "/login", "/register-company", "/forgot-password", "/reset-password"]
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
+  
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return req.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: any) {
+          req.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+          res.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+        },
+        remove(name: string, options: any) {
+          req.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+          res.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+        },
+      },
+    }
+  )
 
-  // Check if the current path is a public route
-  const isPublicRoute = publicRoutes.some((route) => path === route || path.startsWith(`${route}/`))
-
-  // Skip middleware for static files and public assets
-  if (path.startsWith("/_next") || path.startsWith("/api") || path.includes(".") || path.startsWith("/favicon")) {
-    return NextResponse.next()
+  // Check session
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  
+  const path = req.nextUrl.pathname
+  
+  // Allow public routes
+  if (PUBLIC_ROUTES.some(route => path.startsWith(route))) {
+    // Redirect authenticated users away from auth pages
+    if (session && (path === '/login' || path === '/register' || path === '/register-company')) {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+    return res
   }
 
-  // Create a Supabase client - Fixed variable name from SUPABASE_ANON_KEY to NEXT_PUBLIC_SUPABASE_ANON_KEY
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: {
-      get(name: string) {
-        return request.cookies.get(name)?.value
-      },
-      set(name: string, value: string, options: any) {
-        request.cookies.set({
-          name,
-          value,
-          ...options,
-        })
-      },
-      remove(name: string, options: any) {
-        request.cookies.set({
-          name,
-          value: "",
-          ...options,
-        })
-      },
-    },
+  // Require authentication for all other routes
+  if (!session) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  // Get user role
+  const { data: userData, error: userError } = await supabase
+    .from('users')
+    .select('role, is_active, company_id, terminal_id')
+    .eq('id', session.user.id)
+    .single()
+
+  if (userError || !userData) {
+    await supabase.auth.signOut()
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  // Check if user is active
+  if (!userData.is_active) {
+    await supabase.auth.signOut()
+    return NextResponse.redirect(new URL('/login?error=account-deactivated', req.url))
+  }
+
+  // Validate role-based access
+  const userRole = userData.role
+  const hasAccess = Object.entries(ROLE_ROUTES).some(([role, routes]) => {
+    if (role === userRole) {
+      return routes.some(route => path.startsWith(route))
+    }
+    return false
   })
 
-  // Check if the user is authenticated
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // If the user is not authenticated and trying to access a protected route
-  if (!user && !isPublicRoute) {
-    return NextResponse.redirect(new URL("/login", request.url))
+  if (!hasAccess && path !== '/unauthorized' && path !== '/dashboard') {
+    return NextResponse.redirect(new URL('/unauthorized', req.url))
   }
 
-  // If the user is authenticated and trying to access login or register-company
-  if (user && (path === "/login" || path === "/register-company")) {
-    // Get the user's role from the database
-    const { data: userData, error } = await supabase.from("users").select("role, company_id").eq("id", user.id).single()
+  // Add user context to request headers
+  const requestHeaders = new Headers(req.headers)
+  requestHeaders.set('x-user-role', userRole)
+  requestHeaders.set('x-user-id', session.user.id)
+  requestHeaders.set('x-company-id', userData.company_id || '')
+  requestHeaders.set('x-terminal-id', userData.terminal_id || '')
 
-    if (error || !userData) {
-      // If there's an error or no user data, sign out the user
-      await supabase.auth.signOut()
-      return NextResponse.redirect(new URL("/login", request.url))
-    }
-
-    // Redirect to the appropriate dashboard based on role
-    return NextResponse.redirect(new URL(`/${userData.role}`, request.url))
-  }
-
-  // If the user is authenticated, check their role for role-based routing
-  if (user && !isPublicRoute) {
-    // Get the user's role from the database
-    const { data: userData, error } = await supabase
-      .from("users")
-      .select("role, company_id, is_company_admin")
-      .eq("id", user.id)
-      .single()
-
-    if (error || !userData) {
-      // If there's an error or no user data, sign out the user
-      await supabase.auth.signOut()
-      return NextResponse.redirect(new URL("/login", request.url))
-    }
-
-    const role = userData.role
-    const isCompanyAdmin = userData.is_company_admin
-
-    // Role-based routing checks
-    const roleBasedPaths = {
-      worker: ["/worker"],
-      cashier: ["/cashier"],
-      finance: ["/finance"],
-      manager: ["/manager"],
-      admin: ["/admin"],
-    }
-
-    // Company admin can access company admin routes
-    if (isCompanyAdmin) {
-      roleBasedPaths[role].push("/company-admin")
-    }
-
-    // Check if the user is trying to access a route they don't have permission for
-    const hasAccess = Object.entries(roleBasedPaths).some(([userRole, paths]) => {
-      if (role === userRole || role === "admin") {
-        return paths.some((allowedPath) => path.startsWith(allowedPath))
-      }
-      return false
-    })
-
-    // If the user doesn't have access to the requested path, redirect to their dashboard
-    if (!hasAccess) {
-      return NextResponse.redirect(new URL(`/${role}`, request.url))
-    }
-
-    // Redirect to the appropriate dashboard if accessing /dashboard
-    if (path === "/dashboard") {
-      return NextResponse.redirect(new URL(`/${role}`, request.url))
-    }
-  }
-
-  return NextResponse.next()
+  return NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  })
 }
 
 export const config = {
