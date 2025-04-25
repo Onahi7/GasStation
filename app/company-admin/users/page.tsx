@@ -6,184 +6,126 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { createClient } from "@supabase/supabase-js"
 import { useToast } from "@/hooks/use-toast"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import type { User, Terminal } from "@/lib/types"
+import { useAuth } from "@/hooks/use-auth"
 import { Plus, Edit, Trash2 } from "lucide-react"
+import { getUsers, createUser, updateUser, deleteUser } from "@/app/actions/users"
+import { getTerminals } from "@/app/actions/terminals"
+import { UserRole } from "@prisma/client"
+
+interface UIUser {
+  id: string
+  name: string | null
+  email: string
+  role: UserRole
+  terminalId: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+interface UITerminal {
+  id: string
+  name: string
+  location: string
+  companyId: string
+  createdAt: Date
+  updatedAt: Date
+}
 
 export default function UsersManagementPage() {
-  const [users, setUsers] = useState<User[]>([])
-  const [terminals, setTerminals] = useState<Terminal[]>([])
+  const [users, setUsers] = useState<UIUser[]>([])
+  const [terminals, setTerminals] = useState<UITerminal[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddingUser, setIsAddingUser] = useState(false)
   const [isEditingUser, setIsEditingUser] = useState(false)
-  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [selectedUser, setSelectedUser] = useState<UIUser | null>(null)
+  const { user: currentUser } = useAuth()
+  const { toast } = useToast()
 
-  // New user form state
+  // Form state
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [role, setRole] = useState("worker")
   const [terminalId, setTerminalId] = useState("")
-
-  const { toast } = useToast()
-
-  // Create a Supabase client
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
   useEffect(() => {
     async function loadData() {
-      setIsLoading(true)
-
-      // Get current user to get company_id
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) return
-
-      // Get user details including company_id
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("id", user.id)
-        .single()
-
-      if (userError || !userData) {
-        console.error("Error fetching user data:", userError)
+      if (!currentUser?.id) {
+        toast({
+          title: "Error",
+          description: "No user found. Please log in again.",
+          variant: "destructive",
+        })
         return
       }
 
-      const companyId = userData.company_id
+      setIsLoading(true)
+      try {
+        // Get terminal managers for the company
+        const usersData = await getUsers(currentUser.companyId)
+        const terminalsData = await getTerminals(currentUser.companyId)
+        
+        setUsers(usersData)
+        setTerminals(terminalsData)
 
-      // Get all users for this company
-      const { data: usersData, error: usersError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("full_name")
-
-      if (usersError) {
-        console.error("Error fetching users:", usersError)
-      } else {
-        setUsers(usersData || [])
-      }
-
-      // Get terminals for this company
-      const { data: terminalsData, error: terminalsError } = await supabase
-        .from("terminals")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("name")
-
-      if (terminalsError) {
-        console.error("Error fetching terminals:", terminalsError)
-      } else {
-        setTerminals(terminalsData || [])
-        if (terminalsData && terminalsData.length > 0) {
+        if (terminalsData.length > 0) {
           setTerminalId(terminalsData[0].id)
         }
+      } catch (error: any) {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load data",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
       }
-
-      setIsLoading(false)
     }
 
     loadData()
-  }, [])
+  }, [currentUser?.id, toast])
 
   const resetForm = () => {
     setFullName("")
     setEmail("")
     setPassword("")
-    setRole("worker")
-    if (terminals.length > 0) {
-      setTerminalId(terminals[0].id)
-    } else {
-      setTerminalId("")
-    }
+    setTerminalId(terminals[0]?.id || "")
     setSelectedUser(null)
   }
 
   const handleAddUser = async () => {
+    if (!currentUser?.companyId || !terminalId) {
+      toast({
+        title: "Error",
+        description: "Missing required information",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       setIsLoading(true)
-
-      // 1. Create auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      await createUser({
+        name: fullName,
         email,
         password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName },
+        role: UserRole.COMPANY_ADMIN,
+        companyId: currentUser.companyId,
+        terminalId,
       })
 
-      if (authError) {
-        throw new Error(authError.message)
-      }
-
-      if (!authData.user) {
-        throw new Error("Failed to create user account")
-      }
-
-      // Get current user to get company_id
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) throw new Error("Not authenticated")
-
-      // Get user details including company_id
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("id", user.id)
-        .single()
-
-      if (userError || !userData) {
-        throw new Error("Error fetching company data")
-      }
-
-      // 2. Create user record
-      const { error: insertError } = await supabase.from("users").insert([
-        {
-          id: authData.user.id,
-          full_name: fullName,
-          email,
-          role,
-          company_id: userData.company_id,
-          terminal_id: terminalId,
-          is_company_admin: role === "admin",
-        },
-      ])
-
-      if (insertError) {
-        throw new Error(insertError.message)
-      }
-
-      // 3. Refresh user list
-      const { data: usersData } = await supabase
-        .from("users")
-        .select("*")
-        .eq("company_id", userData.company_id)
-        .order("full_name")
-
-      setUsers(usersData || [])
-
+      const usersData = await getUsers(currentUser.companyId)
+      setUsers(usersData)
+      
       toast({
         title: "Success",
-        description: "User has been added successfully",
+        description: "Terminal manager has been added successfully",
       })
-
+      
       setIsAddingUser(false)
       resetForm()
     } catch (error: any) {
@@ -197,68 +139,33 @@ export default function UsersManagementPage() {
     }
   }
 
-  const handleEditUser = (user: User) => {
+  const handleEditUser = (user: UIUser) => {
     setSelectedUser(user)
-    setFullName(user.full_name)
+    setFullName(user.name || "")
     setEmail(user.email)
-    setRole(user.role)
-    setTerminalId(user.terminal_id || "")
+    setTerminalId(user.terminalId || "")
     setIsEditingUser(true)
   }
 
   const handleUpdateUser = async () => {
-    if (!selectedUser) return
+    if (!selectedUser || !currentUser?.companyId) return
 
     try {
       setIsLoading(true)
+      await updateUser(selectedUser.id, {
+        name: fullName,
+        role: UserRole.COMPANY_ADMIN,
+        terminalId,
+      })
 
-      // Update user record
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          full_name: fullName,
-          role,
-          terminal_id: terminalId,
-          is_company_admin: role === "admin",
-        })
-        .eq("id", selectedUser.id)
-
-      if (updateError) {
-        throw new Error(updateError.message)
-      }
-
-      // Get current user to get company_id
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) throw new Error("Not authenticated")
-
-      // Get user details including company_id
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("id", user.id)
-        .single()
-
-      if (userError || !userData) {
-        throw new Error("Error fetching company data")
-      }
-
-      // Refresh user list
-      const { data: usersData } = await supabase
-        .from("users")
-        .select("*")
-        .eq("company_id", userData.company_id)
-        .order("full_name")
-
-      setUsers(usersData || [])
-
+      const usersData = await getUsers(currentUser.companyId)
+      setUsers(usersData)
+      
       toast({
         title: "Success",
         description: "User has been updated successfully",
       })
-
+      
       setIsEditingUser(false)
       resetForm()
     } catch (error: any) {
@@ -273,28 +180,16 @@ export default function UsersManagementPage() {
   }
 
   const handleDeleteUser = async (userId: string) => {
+    if (!currentUser?.companyId) return
     if (!confirm("Are you sure you want to delete this user?")) return
 
     try {
       setIsLoading(true)
+      await deleteUser(userId)
 
-      // Delete user from auth
-      const { error: authError } = await supabase.auth.admin.deleteUser(userId)
-
-      if (authError) {
-        throw new Error(authError.message)
-      }
-
-      // Delete user record
-      const { error: deleteError } = await supabase.from("users").delete().eq("id", userId)
-
-      if (deleteError) {
-        throw new Error(deleteError.message)
-      }
-
-      // Refresh user list
-      setUsers(users.filter((user) => user.id !== userId))
-
+      const usersData = await getUsers(currentUser.companyId)
+      setUsers(usersData)
+      
       toast({
         title: "Success",
         description: "User has been deleted successfully",
@@ -312,17 +207,17 @@ export default function UsersManagementPage() {
 
   return (
     <DashboardLayout role="admin">
-      <DashboardHeader title="User Management" description="Add, edit, and manage users for your company">
+      <DashboardHeader title="Terminal Managers" description="Add and manage terminal managers for your company">
         <Button onClick={() => setIsAddingUser(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Add User
+          <Plus className="mr-2 h-4 w-4" /> Add Terminal Manager
         </Button>
       </DashboardHeader>
 
       <div className="p-4 md:p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Company Users</CardTitle>
-            <CardDescription>Manage all users across your terminals</CardDescription>
+            <CardTitle>Terminal Managers</CardTitle>
+            <CardDescription>Manage terminal managers across your locations</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -335,7 +230,6 @@ export default function UsersManagementPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
                     <TableHead>Terminal</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -343,29 +237,30 @@ export default function UsersManagementPage() {
                 <TableBody>
                   {users.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No users found. Add your first user to get started.
+                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                        No terminal managers found. Add your first terminal manager to get started.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.full_name}</TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell className="capitalize">{user.role}</TableCell>
-                        <TableCell>
-                          {terminals.find((t) => t.id === user.terminal_id)?.name || "Not assigned"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditUser(user)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(user.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    users
+                      .filter(user => user.role === UserRole.COMPANY_ADMIN)
+                      .map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell className="font-medium">{user.name}</TableCell>
+                          <TableCell>{user.email}</TableCell>
+                          <TableCell>
+                            {terminals.find((t) => t.id === user.terminalId)?.name || "Not assigned"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditUser(user)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(user.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
                   )}
                 </TableBody>
               </Table>
@@ -378,8 +273,8 @@ export default function UsersManagementPage() {
       <Dialog open={isAddingUser} onOpenChange={setIsAddingUser}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add New User</DialogTitle>
-            <DialogDescription>Create a new user account for your company</DialogDescription>
+            <DialogTitle>Add Terminal Manager</DialogTitle>
+            <DialogDescription>Create a new terminal manager account</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -412,21 +307,6 @@ export default function UsersManagementPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="worker">Worker</SelectItem>
-                  <SelectItem value="cashier">Cashier</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="terminal">Terminal</Label>
               <Select value={terminalId} onValueChange={setTerminalId}>
                 <SelectTrigger>
@@ -447,7 +327,7 @@ export default function UsersManagementPage() {
               Cancel
             </Button>
             <Button onClick={handleAddUser} disabled={isLoading}>
-              {isLoading ? "Adding..." : "Add User"}
+              {isLoading ? "Adding..." : "Add Terminal Manager"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -457,32 +337,21 @@ export default function UsersManagementPage() {
       <Dialog open={isEditingUser} onOpenChange={setIsEditingUser}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>Update user details and permissions</DialogDescription>
+            <DialogTitle>Edit Terminal Manager</DialogTitle>
+            <DialogDescription>Update terminal manager details</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="editFullName">Full Name</Label>
-              <Input id="editFullName" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+              <Input
+                id="editFullName"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="editEmail">Email</Label>
               <Input id="editEmail" type="email" value={email} disabled />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="editRole">Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="worker">Worker</SelectItem>
-                  <SelectItem value="cashier">Cashier</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="editTerminal">Terminal</Label>
@@ -505,7 +374,7 @@ export default function UsersManagementPage() {
               Cancel
             </Button>
             <Button onClick={handleUpdateUser} disabled={isLoading}>
-              {isLoading ? "Updating..." : "Update User"}
+              {isLoading ? "Updating..." : "Update Terminal Manager"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -30,14 +30,32 @@ export default function CashierDashboard() {
   const [openCashDialog, setOpenCashDialog] = useState(false)
   const [openExpenseDialog, setOpenExpenseDialog] = useState(false)
   const [openHandoverDialog, setOpenHandoverDialog] = useState(false)
+  const [selectedSubmission, setSelectedSubmission] = useState<any>(null)
+  const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([])
+  const [verifiedSubmissions, setVerifiedSubmissions] = useState<any[]>([])
+  const [verificationAmount, setVerificationAmount] = useState<string>("")
+  const [verificationNotes, setVerificationNotes] = useState<string>("")
   const { toast } = useToast()
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        // Fetch data
-        // This would be implemented with actual API calls
+        // Fetch pending cash submissions (unverified)
+        const pendingResponse = await fetch('/api/cash-submissions?verified=false');
+        const pendingData = await pendingResponse.json();
+        
+        if (pendingData && pendingData.submissions) {
+          setPendingSubmissions(pendingData.submissions);
+        }
+        
+        // Fetch verified cash submissions
+        const verifiedResponse = await fetch('/api/cash-submissions?verified=true');
+        const verifiedData = await verifiedResponse.json();
+        
+        if (verifiedData && verifiedData.submissions) {
+          setVerifiedSubmissions(verifiedData.submissions);
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         toast({
@@ -221,6 +239,152 @@ export default function CashierDashboard() {
         </div>
       </DashboardHeader>
 
+      {/* Cash Verification Dialog */}
+      <Dialog open={!!selectedSubmission} onOpenChange={(open) => {
+        if (!open) setSelectedSubmission(null);
+        if (!open) {
+          setVerificationAmount("");
+          setVerificationNotes("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Verify Cash Submission</DialogTitle>
+            <DialogDescription>Verify the cash amount submitted by the worker.</DialogDescription>
+          </DialogHeader>
+          {selectedSubmission && (
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              
+              if (!selectedSubmission) return;
+              
+              setIsLoading(true);
+              try {
+                const formData = new FormData();
+                formData.append("submissionId", selectedSubmission.id);
+                formData.append("verifierId", "current-cashier-id"); // In a real implementation, get from auth
+                formData.append("notes", verificationNotes);
+                
+                // Call the actual verifyCashSubmission server action
+                const response = await fetch('/api/cash-submissions/verify', {
+                  method: 'POST',
+                  body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                  throw new Error(result.error);
+                }
+                
+                // Update the local state to reflect the verification
+                const updatedPendingSubmissions = pendingSubmissions.filter(
+                  (submission) => submission.id !== selectedSubmission.id
+                );
+                setPendingSubmissions(updatedPendingSubmissions);
+                
+                const verifiedSubmission = {
+                  ...selectedSubmission,
+                  verified: true,
+                  verifiedBy: "current-cashier-id",
+                  notes: verificationNotes
+                };
+                
+                setVerifiedSubmissions([verifiedSubmission, ...verifiedSubmissions]);
+                
+                toast({
+                  title: "Cash Verified",
+                  description: `Submission of ₦${selectedSubmission.amount.toLocaleString()} from ${selectedSubmission.user.name} has been verified.`,
+                });
+                
+                setSelectedSubmission(null);
+                setVerificationAmount("");
+                setVerificationNotes("");
+              } catch (error) {
+                console.error("Error verifying submission:", error);
+                toast({
+                  title: "Error",
+                  description: "Failed to verify cash submission. Please try again.",
+                  variant: "destructive",
+                });
+              } finally {
+                setIsLoading(false);
+              }
+            }}>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="worker-name" className="text-right">
+                    Worker
+                  </Label>
+                  <Input 
+                    id="worker-name" 
+                    value={selectedSubmission.user.name} 
+                    className="col-span-3" 
+                    readOnly 
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="submission-time" className="text-right">
+                    Submitted
+                  </Label>
+                  <Input 
+                    id="submission-time" 
+                    value={new Date(selectedSubmission.createdAt).toLocaleString()} 
+                    className="col-span-3" 
+                    readOnly 
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="claimed-amount" className="text-right">
+                    Claimed
+                  </Label>
+                  <Input 
+                    id="claimed-amount" 
+                    value={`₦${selectedSubmission.amount.toLocaleString()}`} 
+                    className="col-span-3" 
+                    readOnly 
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="verification-amount" className="text-right font-bold">
+                    Actual
+                  </Label>
+                  <Input
+                    id="verification-amount"
+                    type="number"
+                    placeholder={selectedSubmission.amount.toString()}
+                    className="col-span-3"
+                    value={verificationAmount}
+                    onChange={(e) => setVerificationAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="verification-notes" className="text-right">
+                    Notes
+                  </Label>
+                  <Textarea
+                    id="verification-notes"
+                    placeholder="Any discrepancies or additional information"
+                    className="col-span-3"
+                    value={verificationNotes}
+                    onChange={(e) => setVerificationNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" type="button" onClick={() => setSelectedSubmission(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isLoading || !verificationAmount}>
+                  {isLoading ? "Verifying..." : "Verify Submission"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 md:p-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -285,86 +449,110 @@ export default function CashierDashboard() {
             </div>
 
             <TabsContent value="cash" className="space-y-4">
+              {/* Pending Cash Submissions */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <div>
-                    <CardTitle>Recent Cash Submissions</CardTitle>
-                    <CardDescription>Cash received from workers</CardDescription>
+                    <CardTitle>Pending Cash Submissions</CardTitle>
+                    <CardDescription>Unverified cash submissions from workers</CardDescription>
                   </div>
-                  <Button size="sm" onClick={() => setOpenCashDialog(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Receive Cash
-                  </Button>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {[
-                      {
-                        id: "CS123",
-                        worker: "John Doe",
-                        time: "10:30 AM",
-                        amount: "₦25,400",
-                        status: "Verified",
-                      },
-                      {
-                        id: "CS122",
-                        worker: "Jane Smith",
-                        time: "9:45 AM",
-                        amount: "₦18,700",
-                        status: "Verified",
-                      },
-                      {
-                        id: "CS121",
-                        worker: "Robert Johnson",
-                        time: "9:15 AM",
-                        amount: "₦22,300",
-                        status: "Verified",
-                      },
-                      {
-                        id: "CS120",
-                        worker: "Sarah Williams",
-                        time: "Yesterday, 5:30 PM",
-                        amount: "₦19,800",
-                        status: "Verified",
-                      },
-                      {
-                        id: "CS119",
-                        worker: "Michael Brown",
-                        time: "Yesterday, 4:45 PM",
-                        amount: "₦21,500",
-                        status: "Verified",
-                      },
-                    ].map((submission, i) => (
-                      <div key={i} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                        <div>
-                          <div className="font-medium">{submission.worker}</div>
-                          <div className="text-sm text-muted-foreground">{submission.id} • {submission.time}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium">{submission.amount}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                            {submission.status}
+                  {pendingSubmissions.length > 0 ? (
+                    <div className="space-y-4">
+                      {pendingSubmissions.map((submission) => (
+                        <div key={submission.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
+                          <div>
+                            <div className="font-medium">{submission.user.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {submission.id} • {new Date(submission.createdAt).toLocaleTimeString()}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-medium">₦{submission.amount.toLocaleString()}</div>
+                            {submission.notes && (
+                              <div className="text-xs text-muted-foreground">{submission.notes}</div>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <div className="px-2 py-1 rounded-full text-xs bg-amber-100 text-amber-800 flex items-center">
+                              <Clock className="mr-1 h-3 w-3" />
+                              Pending
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <Button 
+                              size="sm" 
+                              onClick={() => {
+                                setSelectedSubmission(submission);
+                                setVerificationAmount(submission.amount.toString());
+                              }}
+                            >
+                              Verify
+                            </Button>
                           </div>
                         </div>
-                        <div className="ml-4">
-                          <Button size="sm" variant="outline">
-                            Details
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-4 text-center text-muted-foreground">
+                      No pending cash submissions
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+
+              {/* Verified Cash Submissions */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle>Recent Verified Submissions</CardTitle>
+                    <CardDescription>Verified cash submissions from workers</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {verifiedSubmissions.length > 0 ? (
+                    <div className="space-y-4">
+                      {verifiedSubmissions.map((submission) => (
+                        <div key={submission.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
+                          <div>
+                            <div className="font-medium">{submission.user.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {submission.id} • {new Date(submission.createdAt).toLocaleTimeString()}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-medium">₦{submission.amount.toLocaleString()}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800 flex items-center">
+                              <CheckCircle2 className="mr-1 h-3 w-3" />
+                              Verified
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <Button size="sm" variant="outline">
+                              Details
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-4 text-center text-muted-foreground">
+                      No verified cash submissions yet
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Cash Flow</CardTitle>
                   <CardDescription>Daily cash submissions over the past week</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <AreaChart data={cashFlowData} xKey="day" yKey="amount" />
+                  <AreaChart data={cashFlowData} index="day" categories={["amount"]} colors={["blue"]} />
                 </CardContent>
               </Card>
             </TabsContent>

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useAuth } from "@/hooks/use-auth"
+import { TerminalSelector } from "@/components/terminal-selector"
 import {
   BellIcon,
   MenuIcon,
@@ -46,169 +47,154 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ title, description, children, className }: DashboardHeaderProps) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b p-4 md:p-6",
-        className,
-      )}
-    >
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {description && <p className="text-muted-foreground">{description}</p>}
-      </div>
-      {children && <div className="flex items-center gap-2">{children}</div>}
-    </div>
-  )
-}
-
-function OldDashboardHeader() {
+  const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
   const { user, signOut } = useAuth()
-  const [isSearchOpen, setIsSearchOpen] = useState(false)
 
-  // Determine the current section based on the pathname
-  const getCurrentSection = () => {
-    if (pathname?.startsWith("/admin")) return "Admin Dashboard"
-    if (pathname?.startsWith("/manager")) return "Manager Dashboard"
-    if (pathname?.startsWith("/finance")) return "Finance Dashboard"
-    if (pathname?.startsWith("/worker")) return "Worker Dashboard"
-    if (pathname?.startsWith("/auditor")) return "Auditor Dashboard"
-    return "Dashboard"
+  const navigation = {
+    ADMIN: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Users", href: "/admin/users", icon: UsersIcon },
+      { name: "Pumps", href: "/admin/pumps", icon: FuelIcon },
+      { name: "Tanks", href: "/admin/tanks", icon: DropletIcon },
+      { name: "Settings", href: "/admin/settings", icon: SettingsIcon },
+    ],
+    COMPANY_ADMIN: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Terminals", href: "/company-admin/terminals", icon: FuelIcon },
+      { name: "Users", href: "/company-admin/users", icon: UsersIcon },
+    ],
+    MANAGER: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Staff", href: "/manager/staff", icon: UsersIcon },
+      { name: "Deliveries", href: "/manager/deliveries", icon: TruckIcon },
+      { name: "Reports", href: "/manager/reports", icon: FileTextIcon },
+      { name: "Creditors", href: "/manager/creditors", icon: DollarSignIcon },
+    ],
+    AUDITOR: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Transactions", href: "/auditor/transactions", icon: ClipboardIcon },
+      { name: "Compliance", href: "/auditor/compliance", icon: AlertTriangleIcon },
+    ],
+    FINANCE: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Reports", href: "/finance/reports", icon: BarChartIcon },
+    ],
+    CASHIER: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Transactions", href: "/cashier/transactions", icon: WalletIcon },
+    ],
+    WORKER: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Readings", href: "/worker/readings", icon: GaugeIcon },
+      { name: "Performance", href: "/worker/performance", icon: BarChartIcon },
+    ],
+    DRIVER: [
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
+      { name: "Deliveries", href: "/driver/deliveries", icon: TruckIcon },
+      { name: "Reports", href: "/driver/reports", icon: FileTextIcon },
+    ],
   }
 
-  // Navigation links based on user role
-  const getNavLinks = () => {
-    if (pathname?.startsWith("/admin")) {
-      return [
-        { href: "/admin", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/admin/users", label: "Users", icon: <UsersIcon className="h-5 w-5 mr-2" /> },
-        { href: "/admin/tanks", label: "Tanks", icon: <DropletIcon className="h-5 w-5 mr-2" /> },
-        { href: "/admin/pumps", label: "Pumps", icon: <GaugeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/admin/settings", label: "Settings", icon: <SettingsIcon className="h-5 w-5 mr-2" /> },
-      ]
-    }
-
-    if (pathname?.startsWith("/manager")) {
-      return [
-        { href: "/manager", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/drivers", label: "Drivers", icon: <TruckIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/deliveries", label: "Deliveries", icon: <UploadIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/creditors", label: "Creditors", icon: <WalletIcon className="h-5 w-5 mr-2" /> },
-        { href: "/manager/reports", label: "Reports", icon: <BarChartIcon className="h-5 w-5 mr-2" /> },
-      ]
-    }
-
-    if (pathname?.startsWith("/finance")) {
-      return [
-        { href: "/finance", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/finance/cash", label: "Cash Management", icon: <DollarSignIcon className="h-5 w-5 mr-2" /> },
-        { href: "/finance/credit", label: "Credit Management", icon: <ClipboardIcon className="h-5 w-5 mr-2" /> },
-        { href: "/finance/reports", label: "Reports", icon: <FileTextIcon className="h-5 w-5 mr-2" /> },
-      ]
-    }
-
-    if (pathname?.startsWith("/worker")) {
-      return [
-        { href: "/worker", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/worker/readings", label: "Meter Readings", icon: <GaugeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/worker/sales", label: "Sales", icon: <DollarSignIcon className="h-5 w-5 mr-2" /> },
-        { href: "/worker/performance", label: "Performance", icon: <BarChartIcon className="h-5 w-5 mr-2" /> },
-      ]
-    }
-
-    if (pathname?.startsWith("/auditor")) {
-      return [
-        { href: "/auditor", label: "Overview", icon: <HomeIcon className="h-5 w-5 mr-2" /> },
-        { href: "/auditor/transactions", label: "Transactions", icon: <ClipboardIcon className="h-5 w-5 mr-2" /> },
-        {
-          href: "/auditor/discrepancies",
-          label: "Discrepancies",
-          icon: <AlertTriangleIcon className="h-5 w-5 mr-2" />,
-        },
-        { href: "/auditor/compliance", label: "Compliance", icon: <FileTextIcon className="h-5 w-5 mr-2" /> },
-      ]
-    }
-
-    return []
-  }
+  const roleNavigation = user?.role ? navigation[user.role as keyof typeof navigation] : []
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
-      <Sheet>
-        <SheetTrigger asChild>
-          <Button variant="outline" size="icon" className="md:hidden">
-            <MenuIcon className="h-5 w-5" />
-            <span className="sr-only">Toggle Menu</span>
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-64 sm:max-w-xs">
-          <SheetHeader>
-            <SheetTitle>Gas Station Management</SheetTitle>
-          </SheetHeader>
-          <nav className="grid gap-2 py-6">
-            {getNavLinks().map((link, index) => (
-              <Link
-                key={index}
-                href={link.href}
-                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md ${
-                  pathname === link.href
-                    ? "bg-accent text-accent-foreground"
-                    : "hover:bg-accent hover:text-accent-foreground"
-                }`}
-              >
-                {link.icon}
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </SheetContent>
-      </Sheet>
-      <div className="flex items-center gap-2">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
-          <FuelIcon className="h-6 w-6" />
-          <span className="hidden md:inline">Gas Station Management</span>
-        </Link>
-      </div>
-      <div className="flex-1 flex justify-center">
-        <h1 className="text-lg font-semibold">{getCurrentSection()}</h1>
-      </div>
-      <div className="flex items-center gap-4">
-        <Button variant="outline" size="icon" onClick={() => setIsSearchOpen(!isSearchOpen)}>
-          <SearchIcon className="h-5 w-5" />
-          <span className="sr-only">Search</span>
-        </Button>
-        <Button variant="outline" size="icon">
-          <BellIcon className="h-5 w-5" />
-          <span className="sr-only">Notifications</span>
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon">
-              <UserIcon className="h-5 w-5" />
-              <span className="sr-only">User</span>
+    <div className={cn("border-b bg-background", className)}>
+      <div className="flex h-16 items-center px-4">
+        <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" className="mr-2 px-0 text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 lg:hidden">
+              <MenuIcon className="h-6 w-6" />
+              <span className="sr-only">Toggle navigation menu</span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <UserIcon className="h-4 w-4 mr-2" />
-              Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <SettingsIcon className="h-4 w-4 mr-2" />
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut()}>
-              <LogOutIcon className="h-4 w-4 mr-2" />
-              Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72">
+            <SheetHeader className="border-b pb-4">
+              <SheetTitle>{process.env.NEXT_PUBLIC_APP_NAME}</SheetTitle>
+            </SheetHeader>
+            <div className="flex flex-col gap-2 py-4">
+              {roleNavigation.map((item) => {
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all hover:bg-accent",
+                      pathname === item.href ? "bg-accent" : "transparent"
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.name}
+                  </Link>
+                )
+              })}
+            </div>
+          </SheetContent>
+        </Sheet>
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <FuelIcon className="h-6 w-6" />
+            <span className="font-semibold inline-block">
+              {process.env.NEXT_PUBLIC_APP_NAME}
+            </span>
+          </Link>
+        </div>
+        <div className="ml-auto flex items-center gap-4">
+          {/* Only show terminal selector for roles that might work with multiple terminals */}
+          {user?.role && ['COMPANY_ADMIN', 'MANAGER', 'AUDITOR', 'FINANCE'].includes(user.role) && (
+            <TerminalSelector />
+          )}
+          <Button variant="ghost" size="icon" className="text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0">
+            <BellIcon className="h-5 w-5" />
+            <span className="sr-only">Toggle notifications</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full">
+                <UserIcon className="h-5 w-5" />
+                <span className="sr-only">Toggle user menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user?.name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings">
+                  <SettingsIcon className="mr-2 h-4 w-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => signOut()}
+                className="text-red-600 focus:text-red-600"
+              >
+                <LogOutIcon className="mr-2 h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-    </header>
+      {(title || description) && (
+        <div className="border-b px-4 py-3">
+          {title && <h1 className="text-xl font-semibold">{title}</h1>}
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        </div>
+      )}
+    </div>
   )
 }
 

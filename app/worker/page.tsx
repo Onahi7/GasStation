@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/dashboard-layout"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { TankMonitoringSystem } from "@/components/tank-monitoring-system"
 import {
   Dialog,
   DialogContent,
@@ -40,29 +41,39 @@ export default function WorkerDashboard() {
   const [openShiftDialog, setOpenShiftDialog] = useState(false)
   const [openEndShiftDialog, setOpenEndShiftDialog] = useState(false)
   const [openPaymentDialog, setOpenPaymentDialog] = useState(false)
+  const [openCashSubmissionDialog, setOpenCashSubmissionDialog] = useState(false)
   const [currentShift, setCurrentShift] = useState<any>(null)
   const [shiftDuration, setShiftDuration] = useState<string>("00:00:00")
   const [shiftNotes, setShiftNotes] = useState<string>("")
+  const [submissionAmount, setSubmissionAmount] = useState<string>("")
+  const [submissionNotes, setSubmissionNotes] = useState<string>("")
+  const [recentSubmissions, setRecentSubmissions] = useState<any[]>([])
   const { toast } = useToast()
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        // Fetch current shift
-        // This would be implemented with actual API calls
-
-        // Mock data for demonstration
-        setCurrentShift({
-          id: "shift123",
-          start_time: new Date(new Date().getTime() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago
-          status: "active",
-        })
+        // Fetch the user's current active shift
+        const response = await fetch('/api/shifts/active');
+        const data = await response.json();
+        
+        if (data && data.shift) {
+          setCurrentShift(data.shift);
+          
+          // Also fetch recent cash submissions for this shift
+          const submissionsResponse = await fetch(`/api/cash-submissions?shiftId=${data.shift.id}`);
+          const submissionsData = await submissionsResponse.json();
+          
+          if (submissionsData && submissionsData.submissions) {
+            setRecentSubmissions(submissionsData.submissions);
+          }
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         toast({
           title: "Error",
-          description: "Failed to load data. Please try again.",
+          description: "Failed to load shift data. Please try again.",
           variant: "destructive",
         })
       } finally {
@@ -74,8 +85,8 @@ export default function WorkerDashboard() {
 
     // Update shift duration every second if there's an active shift
     const intervalId = setInterval(() => {
-      if (currentShift && currentShift.status === "active") {
-        const startTime = new Date(currentShift.start_time).getTime()
+      if (currentShift) {
+        const startTime = new Date(currentShift.startTime).getTime()
         const now = new Date().getTime()
         const diff = now - startTime
 
@@ -97,8 +108,22 @@ export default function WorkerDashboard() {
     setIsLoading(true)
 
     try {
-      // Start shift
-      // This would be implemented with actual API calls
+      const formData = new FormData()
+      formData.append("userId", "current-user-id") // In a real implementation, get from auth context
+      formData.append("terminalId", "terminal-id") // In a real implementation, get from user context or selection
+      formData.append("notes", shiftNotes)
+
+      // Call the actual startShift server action
+      const response = await fetch('/api/shifts/start', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
       toast({
         title: "Shift started",
@@ -106,13 +131,7 @@ export default function WorkerDashboard() {
       })
 
       setOpenShiftDialog(false)
-
-      // Mock data for demonstration
-      setCurrentShift({
-        id: "shift123",
-        start_time: new Date().toISOString(),
-        status: "active",
-      })
+      setCurrentShift(data.shift)
     } catch (error) {
       console.error("Error starting shift:", error)
       toast({
@@ -130,8 +149,22 @@ export default function WorkerDashboard() {
     setIsLoading(true)
 
     try {
-      // End shift
-      // This would be implemented with actual API calls
+      const formData = new FormData()
+      formData.append("shiftId", currentShift.id)
+      formData.append("userId", currentShift.userId)
+      formData.append("notes", shiftNotes)
+
+      // Call the actual endShift server action
+      const response = await fetch('/api/shifts/end', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
       toast({
         title: "Shift ended",
@@ -140,6 +173,7 @@ export default function WorkerDashboard() {
 
       setOpenEndShiftDialog(false)
       setCurrentShift(null)
+      setRecentSubmissions([])
     } catch (error) {
       console.error("Error ending shift:", error)
       toast({
@@ -348,181 +382,73 @@ export default function WorkerDashboard() {
               <CardTitle>Sales Overview</CardTitle>
               <CardDescription>Daily sales for the past week</CardDescription>
             </CardHeader>
-            <CardContent className="h-80">
-              <AreaChart data={salesData} xKey="day" yKey="sales" />
-            </CardContent>
-          </Card>
-          <Card className="lg:col-span-3">
-            <CardHeader>
-              <CardTitle>Recent Transactions</CardTitle>
-              <CardDescription>Latest payment records</CardDescription>
-            </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {[
-                  {
-                    id: "TX123",
-                    time: "10:30 AM",
-                    amount: "₦5,400",
-                    method: "Cash",
-                    status: "Completed",
-                  },
-                  {
-                    id: "TX122",
-                    time: "10:15 AM",
-                    amount: "₦3,200",
-                    method: "POS",
-                    status: "Pending",
-                  },
-                  {
-                    id: "TX121",
-                    time: "9:45 AM",
-                    amount: "₦7,800",
-                    method: "Bank Transfer",
-                    status: "Completed",
-                  },
-                  {
-                    id: "TX120",
-                    time: "9:30 AM",
-                    amount: "₦2,500",
-                    method: "Cash",
-                    status: "Completed",
-                  },
-                  {
-                    id: "TX119",
-                    time: "9:15 AM",
-                    amount: "₦4,700",
-                    method: "Mobile Money",
-                    status: "Pending",
-                  },
-                ].map((transaction, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`rounded-full p-2 ${
-                          transaction.method === "Cash"
-                            ? "bg-green-100"
-                            : transaction.method === "POS"
-                              ? "bg-blue-100"
-                              : transaction.method === "Bank Transfer"
-                                ? "bg-purple-100"
-                                : "bg-orange-100"
-                        }`}
-                      >
-                        {transaction.method === "Cash" ? (
-                          <DollarSign className="h-4 w-4 text-green-600" />
-                        ) : transaction.method === "POS" ? (
-                          <CreditCard className="h-4 w-4 text-blue-600" />
-                        ) : transaction.method === "Bank Transfer" ? (
-                          <ArrowRight className="h-4 w-4 text-purple-600" />
-                        ) : (
-                          <CreditCard className="h-4 w-4 text-orange-600" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-medium">{transaction.id}</div>
-                        <div className="text-sm text-muted-foreground">{transaction.time}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium">{transaction.amount}</div>
-                      <div
-                        className={`text-xs ${
-                          transaction.status === "Completed" ? "text-green-600" : "text-amber-600"
-                        }`}
-                      >
-                        {transaction.status}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4">
-                <Dialog open={openPaymentDialog} onOpenChange={setOpenPaymentDialog}>
-                  <DialogTrigger asChild>
-                    <Button className="w-full" disabled={!currentShift}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Record Payment
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                      <DialogTitle>Record Payment</DialogTitle>
-                      <DialogDescription>Enter the payment details below.</DialogDescription>
-                    </DialogHeader>
-                    <form>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="payment-method" className="text-right">
-                            Method
-                          </Label>
-                          <select className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
-                            <option value="cash">Cash</option>
-                            <option value="pos">POS</option>
-                            <option value="transfer">Bank Transfer</option>
-                            <option value="mobile">Mobile Money</option>
-                          </select>
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="amount" className="text-right">
-                            Amount
-                          </Label>
-                          <Input id="amount" type="number" placeholder="0.00" className="col-span-3" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="reference" className="text-right">
-                            Reference
-                          </Label>
-                          <Input id="reference" placeholder="Transaction reference" className="col-span-3" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="customer" className="text-right">
-                            Customer
-                          </Label>
-                          <Input id="customer" placeholder="Customer name (optional)" className="col-span-3" />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" type="button" onClick={() => setOpenPaymentDialog(false)}>
-                          Cancel
-                        </Button>
-                        <Button type="submit">Save Payment</Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
+              <AreaChart data={salesData} index="day" categories={["sales"]} colors={["blue"]} />
             </CardContent>
           </Card>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        {/* Tank Monitoring System for Workers */}
+        <div className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-              <CardDescription>Common tasks for your shift</CardDescription>
+              <CardTitle>Tank Monitoring</CardTitle>
+              <CardDescription>Real-time tank level monitoring and status</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-2">
-                <Button className="justify-start" onClick={() => (window.location.href = "/worker/readings")}>
-                  <GasPump className="mr-2 h-4 w-4" />
-                  Record Meter Reading
-                </Button>
-                <Button className="justify-start" onClick={() => setOpenPaymentDialog(true)} disabled={!currentShift}>
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Record Payment
-                </Button>
-                <Button
-                  className="justify-start"
-                  variant="outline"
-                  onClick={() => (window.location.href = "/worker/shifts")}
-                >
-                  <Clock className="mr-2 h-4 w-4" />
-                  View Shift History
-                </Button>
-              </div>
+              <TankMonitoringSystem />
             </CardContent>
           </Card>
+        </div>
+
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer"
+              onClick={() => setOpenPaymentDialog(true)}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">Record Payment</CardTitle>
+                <CreditCard className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Record electronic payments or card transactions.</p>
+              </CardContent>
+            </Card>
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer"
+              onClick={() => setOpenCashSubmissionDialog(true)}
+              disabled={!currentShift}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">Submit Cash</CardTitle>
+                <DollarSign className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Submit collected cash to the cashier.</p>
+              </CardContent>
+            </Card>
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer"
+              onClick={() => (window.location.href = "/worker/readings")}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">Record Meter Reading</CardTitle>
+                <GasPump className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Record the meter readings for the tanks.</p>
+              </CardContent>
+            </Card>
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer"
+              onClick={() => (window.location.href = "/worker/shifts")}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-lg">View Shift History</CardTitle>
+                <Clock className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Check your past shift records and details.</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Shift Checklist</CardTitle>
@@ -563,6 +489,144 @@ export default function WorkerDashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Cash Submission Dialog */}
+      <Dialog open={openCashSubmissionDialog} onOpenChange={setOpenCashSubmissionDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Submit Cash</DialogTitle>
+            <DialogDescription>Submit cash collected during your shift to the cashier.</DialogDescription>
+          </DialogHeader>            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!currentShift) return;
+              
+              setIsLoading(true);
+              try {
+                const formData = new FormData();
+                formData.append("userId", currentShift.userId);
+                formData.append("shiftId", currentShift.id);
+                formData.append("amount", submissionAmount);
+                formData.append("notes", submissionNotes);
+                
+                // Call the actual submitCash server action
+                const result = await fetch('/api/cash-submissions', {
+                  method: 'POST',
+                  body: formData
+                });
+                
+                const submission = await result.json();
+                
+                if (submission.error) {
+                  throw new Error(submission.error);
+                }
+                
+                // Add the new submission to the recent submissions list
+                setRecentSubmissions([submission, ...recentSubmissions]);
+                
+                toast({
+                  title: "Cash Submitted",
+                  description: `₦${submissionAmount} has been recorded for submission.`,
+                });
+                
+                // Reset form
+                setSubmissionAmount("");
+                setSubmissionNotes("");
+                setOpenCashSubmissionDialog(false);
+              } catch (error) {
+                console.error("Error submitting cash:", error);
+                toast({
+                  title: "Error",
+                  description: "Failed to submit cash. Please try again.",
+                  variant: "destructive",
+                });
+              } finally {
+                setIsLoading(false);
+              }
+            }}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="submission-amount" className="text-right">
+                  Amount (₦)
+                </Label>
+                <Input
+                  id="submission-amount"
+                  type="number"
+                  placeholder="0.00"
+                  className="col-span-3"
+                  value={submissionAmount}
+                  onChange={(e) => setSubmissionAmount(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="submission-notes" className="text-right">
+                  Notes
+                </Label>
+                <Textarea
+                  id="submission-notes"
+                  placeholder="Any additional information"
+                  className="col-span-3"
+                  value={submissionNotes}
+                  onChange={(e) => setSubmissionNotes(e.target.value)}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setOpenCashSubmissionDialog(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading || !submissionAmount}>
+                {isLoading ? "Submitting..." : "Submit Cash"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Recent Submissions Section */}
+      {currentShift && (
+        <div className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Cash Submissions</CardTitle>
+              <CardDescription>Cash submitted during your current shift</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {recentSubmissions.length > 0 ? (
+                <div className="space-y-4">
+                  {recentSubmissions.map((submission) => (
+                    <div key={submission.id} className="flex items-center justify-between border-b pb-2">
+                      <div>
+                        <p className="font-medium">₦{submission.amount.toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(submission.createdAt).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center">
+                        {submission.verified ? (
+                          <div className="flex items-center text-green-600">
+                            <CheckCircle2 className="mr-1 h-4 w-4" />
+                            <span>Verified</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-amber-600">
+                            <Clock className="mr-1 h-4 w-4" />
+                            <span>Pending</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  No cash submissions for this shift yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </DashboardLayout>
   )
 }

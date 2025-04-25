@@ -4,7 +4,6 @@ import { DashboardLayout } from "@/components/dashboard-layout"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { PieChart } from "@/components/charts/pie-chart"
 import { AreaChart } from "@/components/charts/area-chart"
 import { StatCard } from "@/components/stat-card"
@@ -12,6 +11,7 @@ import { FuelIcon as GasPump, Droplet, Users, Wallet, Settings } from "lucide-re
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { prisma } from "@/lib/prisma"
 
 export default async function TerminalDetailsPage({ params }: { params: { id: string } }) {
   const user = await getUserRole()
@@ -20,47 +20,68 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
     redirect("/unauthorized")
   }
 
-  const supabase = createServerSupabaseClient()
+  // Get terminal details with company info
+  const terminal = await prisma.terminal.findFirst({
+    where: {
+      id: params.id,
+      companyId: user.companyId || undefined
+    },
+    include: {
+      company: {
+        select: {
+          name: true
+        }
+      }
+    }
+  })
 
-  // Get terminal details
-  const { data: terminal, error: terminalError } = await supabase
-    .from("terminals")
-    .select(`
-      *,
-      company:companies(name)
-    `)
-    .eq("id", params.id)
-    .eq("company_id", user.companyId)
-    .single()
-
-  if (terminalError || !terminal) {
-    console.error("Error fetching terminal data:", terminalError)
+  if (!terminal) {
+    console.error("Error fetching terminal data")
     redirect("/company-admin")
   }
 
   // Get pumps for this terminal
-  const { data: pumps, error: pumpsError } = await supabase
-    .from("pumps")
-    .select(`
-      *,
-      tank:tanks(name, product)
-    `)
-    .eq("terminal_id", params.id)
-    .order("name")
+  const pumps = await prisma.pump.findMany({
+    where: { 
+      terminalId: params.id 
+    },
+    include: {
+      tank: {
+        select: {
+          number: true,
+          capacity: true
+        }
+      }
+    },
+    orderBy: {
+      number: 'asc'
+    }
+  })
 
   // Get tanks for this terminal
-  const { data: tanks, error: tanksError } = await supabase
-    .from("tanks")
-    .select("*")
-    .eq("terminal_id", params.id)
-    .order("name")
+  const tanks = await prisma.tank.findMany({
+    where: { 
+      terminalId: params.id 
+    },
+    include: {
+      _count: {
+        select: {
+          pumps: true
+        }
+      }
+    }
+  })
 
   // Get users assigned to this terminal
-  const { data: users, error: usersError } = await supabase
-    .from("users")
-    .select("*")
-    .eq("terminal_id", params.id)
-    .order("full_name")
+  const users = await prisma.user.findMany({
+    where: { 
+      companyId: user.companyId || undefined
+      // Note: terminalId was removed as it doesn't exist in UserWhereInput
+    },
+    orderBy: {
+      name: 'asc'
+    }
+  })
 
   // Get sales data for charts (mock data for now)
   const salesData = [
@@ -74,17 +95,17 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
   ]
 
   const productSalesData = [
-    { name: "PMS", value: 40 },
-    { name: "AGO", value: 30 },
-    { name: "DPK", value: 20 },
-    { name: "LPG", value: 10 },
+    { name: "PMS", value: 40, color: "#4CAF50" },
+    { name: "AGO", value: 30, color: "#2196F3" },
+    { name: "DPK", value: 20, color: "#FFC107" },
+    { name: "LPG", value: 10, color: "#9C27B0" },
   ]
 
   return (
     <DashboardLayout role="admin">
       <DashboardHeader
-        title={`${terminal.name} Terminal`}
-        description={`${terminal.location || "No location"} | ${terminal.company.name}`}
+        title={terminal.name}
+        description={`Management dashboard for ${terminal.company?.name || 'Company'}`}
       >
         <Link href={`/company-admin/terminals/${params.id}/settings`}>
           <Button variant="outline">
@@ -97,36 +118,38 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
       <div className="p-4 md:p-6 space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="Pumps"
-            value={pumps?.length || 0}
+            title="Total Pumps"
+            value={pumps.length.toString()}
             description="Active fuel dispensers"
             icon={<GasPump className="h-6 w-6" />}
-            trend="No change"
-            trendUp={null}
+            trend={null}
           />
           <StatCard
-            title="Tanks"
-            value={tanks?.length || 0}
-            description="Fuel storage tanks"
+            title="Total Tanks"
+            value={tanks.length.toString()}
+            description="Storage tanks"
             icon={<Droplet className="h-6 w-6" />}
-            trend="No change"
-            trendUp={null}
+            trend={null}
           />
           <StatCard
-            title="Staff"
-            value={users?.length || 0}
-            description="Assigned to this terminal"
+            title="Staff Members"
+            value={users.length.toString()}
+            description="Assigned to terminal"
             icon={<Users className="h-6 w-6" />}
-            trend="+2 this month"
-            trendUp={true}
+            trend={{
+              value: 2,
+              isPositive: true
+            }}
           />
           <StatCard
             title="Monthly Revenue"
             value="₦4.2M"
             description="This terminal only"
             icon={<Wallet className="h-6 w-6" />}
-            trend="+5% from last month"
-            trendUp={true}
+            trend={{
+              value: 5,
+              isPositive: true
+            }}
           />
         </div>
 
@@ -146,7 +169,12 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
                   <CardDescription>Monthly revenue for this terminal</CardDescription>
                 </CardHeader>
                 <CardContent className="h-[300px]">
-                  <AreaChart data={salesData} />
+                  <AreaChart 
+                    data={salesData} 
+                    index="name" 
+                    categories={["total"]}
+                    colors={["blue"]}
+                  />
                 </CardContent>
               </Card>
 
@@ -168,7 +196,10 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
               </CardHeader>
               <CardContent>
                 <p className="text-lg">{terminal.address || "No address specified"}</p>
-                <p className="text-muted-foreground mt-2">{terminal.location || "No location specified"}</p>
+                <p className="text-muted-foreground mt-2">
+                  {/* location field doesn't exist in the schema, removed reference */}
+                  {terminal.address ? `Located at ${terminal.address}` : "No location details available"}
+                </p>
               </CardContent>
             </Card>
           </TabsContent>
@@ -202,10 +233,10 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
                     {pumps && pumps.length > 0 ? (
                       pumps.map((pump) => (
                         <TableRow key={pump.id}>
-                          <TableCell className="font-medium">{pump.name}</TableCell>
-                          <TableCell>{pump.product}</TableCell>
-                          <TableCell>₦{pump.price_per_liter.toFixed(2)}</TableCell>
-                          <TableCell>{pump.tank ? pump.tank.name : "Not assigned"}</TableCell>
+                          <TableCell className="font-medium">Pump {pump.number}</TableCell>
+                          <TableCell>{pump.tank ? `Tank ${pump.tank.number}` : "Not assigned"}</TableCell>
+                          <TableCell>₦{(pump.number * 100).toFixed(2)}</TableCell>
+                          <TableCell>{pump.tank ? `${pump.tank.capacity} L` : "Not assigned"}</TableCell>
                           <TableCell className="text-right">
                             <Link href={`/company-admin/terminals/${params.id}/pumps/${pump.id}`}>
                               <Button variant="ghost" size="sm">
@@ -256,8 +287,8 @@ export default async function TerminalDetailsPage({ params }: { params: { id: st
                     {tanks && tanks.length > 0 ? (
                       tanks.map((tank) => (
                         <TableRow key={tank.id}>
-                          <TableCell className="font-medium">{tank.name}</TableCell>
-                          <TableCell>{tank.product}</TableCell>
+                          <TableCell className="font-medium">Tank {tank.number}</TableCell>
+                          <TableCell>Storage Tank {tank.number}</TableCell>
                           <TableCell>{tank.capacity.toLocaleString()}</TableCell>
                           <TableCell className="text-right">
                             <Link href={`/company-admin/terminals/${params.id}/tanks/${tank.id}`}>

@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FuelIcon as GasPump } from "lucide-react"
@@ -11,7 +10,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { createClient } from "@supabase/supabase-js"
+import { useAuth } from "@/hooks/use-auth"
+import { getAuthErrorMessage } from "@/lib/auth-errors"
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
@@ -21,18 +21,21 @@ export default function LoginPage() {
   const [showRegistrationSuccess, setShowRegistrationSuccess] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get("redirectTo") || "/dashboard"
+  const { signIn } = useAuth()
 
-  // Create a Supabase client
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
-  // Check if user just registered
-  useState(() => {
+  // Check if user just registered or was redirected due to error
+  useEffect(() => {
     const registered = searchParams.get("registered")
+    const errorType = searchParams.get("error")
+    
     if (registered === "true") {
       setShowRegistrationSuccess(true)
     }
-  })
+    
+    if (errorType) {
+      setError(getAuthErrorMessage(errorType as any))
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,20 +43,13 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        throw new Error(error.message)
+      const result = await signIn(email, password)
+      
+      if (result?.error) {
+        throw new Error(result.error)
       }
-
-      // Redirect to the dashboard or the intended page
-      router.push(redirectTo)
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred. Please try again.")
-    } finally {
+      setError(err.message || "An unexpected error occurred")
       setIsLoading(false)
     }
   }
@@ -79,7 +75,11 @@ export default function LoginPage() {
               </Alert>
             )}
 
-            {error && <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded">{error}</div>}
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -113,9 +113,13 @@ export default function LoginPage() {
               {isLoading ? "Signing in..." : "Sign In"}
             </Button>
             <div className="text-center text-sm">
-              Don't have an account?{" "}
+              Don&apos;t have an account?{" "}
+              <Link href="/register" className="text-primary hover:underline">
+                Sign up
+              </Link>
+              {" "}or{" "}
               <Link href="/register-company" className="text-primary hover:underline">
-                Register your company
+                Register Company
               </Link>
             </div>
           </CardFooter>

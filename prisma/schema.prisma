@@ -1,0 +1,294 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  name               String?
+  email              String              @unique
+  emailVerified      DateTime?
+  password           String
+  image              String?
+  role               UserRole            @default(WORKER)
+  companyId          String?
+  company            Company?            @relation(fields: [companyId], references: [id])
+  terminalId         String?
+  terminal           Terminal?           @relation(fields: [terminalId], references: [id])
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  meterReadings      MeterReading[]
+  shifts             Shift[]
+  expenses           Expense[]
+  cashHandovers      CashHandover[]
+  electronicPayments ElectronicPayment[]
+  cashSubmissions    CashSubmission[]
+  salaryAdjustments  SalaryAdjustment[] @relation("AdjustedBy")
+  employee           Employee?
+  
+  @@index([companyId])
+  @@index([terminalId])
+}
+
+enum UserRole {
+  ADMIN
+  COMPANY_ADMIN
+  MANAGER
+  AUDITOR
+  FINANCE
+  CASHIER
+  WORKER
+  DRIVER
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  address     String?
+  phone       String?
+  email       String?
+  users       User[]
+  terminals   Terminal[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Terminal {
+  id                String              @id @default(cuid())
+  name              String
+  address           String?
+  companyId         String
+  company           Company             @relation(fields: [companyId], references: [id])
+  pumps             Pump[]
+  tanks             Tank[]
+  users             User[]
+  shifts            Shift[]
+  meterReadings     MeterReading[]
+  cashHandovers     CashHandover[]
+  expenses          Expense[]
+  electronicPayments ElectronicPayment[]
+  cashSubmissions   CashSubmission[]
+  auditLogs         AuditLog[]
+  employees         Employee[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  @@index([companyId])
+}
+
+model Pump {
+  id            String    @id @default(cuid())
+  number        Int
+  terminalId    String
+  terminal      Terminal  @relation(fields: [terminalId], references: [id])
+  tankId        String
+  tank          Tank      @relation(fields: [tankId], references: [id])
+  meterReadings MeterReading[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Tank {
+  id          String   @id @default(cuid())
+  number      Int
+  capacity    Float
+  terminalId  String
+  terminal    Terminal @relation(fields: [terminalId], references: [id])
+  pumps       Pump[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MeterReading {
+  id          String   @id @default(cuid())
+  opening     Float
+  closing     Float
+  pumpId      String
+  pump        Pump     @relation(fields: [pumpId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  terminalId  String
+  terminal    Terminal @relation(fields: [terminalId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([pumpId])
+  @@index([userId])
+  @@index([shiftId])
+  @@index([terminalId])
+}
+
+model Shift {
+  id                 String              @id @default(cuid())
+  startTime          DateTime
+  endTime            DateTime?
+  userId             String
+  user               User                @relation(fields: [userId], references: [id])
+  terminalId         String
+  terminal           Terminal            @relation(fields: [terminalId], references: [id])
+  meterReadings      MeterReading[]
+  cashHandovers      CashHandover[]
+  electronicPayments ElectronicPayment[]
+  cashSubmissions    CashSubmission[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  
+  @@index([userId])
+  @@index([terminalId])
+}
+
+model CashHandover {
+  id          String   @id @default(cuid())
+  amount      Float
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  terminalId  String
+  terminal    Terminal @relation(fields: [terminalId], references: [id])
+  verified    Boolean  @default(false)
+  verifiedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([shiftId])
+  @@index([terminalId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  amount      Float
+  description String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  terminalId  String
+  terminal    Terminal @relation(fields: [terminalId], references: [id])
+  approved    Boolean  @default(false)
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([terminalId])
+}
+
+model ElectronicPayment {
+  id              String   @id @default(cuid())
+  amount          Float
+  paymentMethod   String
+  referenceNumber String?  @unique
+  status          String   @default("pending")
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  shiftId         String
+  shift           Shift    @relation(fields: [shiftId], references: [id])
+  terminalId      String
+  terminal        Terminal @relation(fields: [terminalId], references: [id])
+  verifiedBy      String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([shiftId])
+  @@index([terminalId])
+}
+
+model CashSubmission {
+  id          String   @id @default(cuid())
+  amount      Float
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  terminalId  String
+  terminal    Terminal @relation(fields: [terminalId], references: [id])
+  verified    Boolean  @default(false)
+  verifiedBy  String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([shiftId])
+  @@index([terminalId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entity      String
+  entityId    String
+  performedBy String
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  terminal    Terminal? @relation(fields: [terminalId], references: [id])
+  terminalId  String?
+
+  @@index([performedBy])
+  @@index([entity, entityId])
+}
+
+model Employee {
+  id              String            @id @default(cuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id])
+  terminalId      String
+  terminal        Terminal         @relation(fields: [terminalId], references: [id])
+  position        String?
+  hireDate        DateTime
+  terminationDate DateTime?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  salaries        EmployeeSalary[]
+  adjustments     SalaryAdjustment[]
+  
+  @@index([userId])
+  @@index([terminalId])
+}
+
+model EmployeeSalary {
+  id            String    @id @default(cuid())
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  baseSalary    Float
+  effectiveDate DateTime
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([employeeId])
+}
+
+model SalaryAdjustment {
+  id             String   @id @default(cuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id])
+  amount         Float
+  adjustmentType String
+  reason         String
+  referenceId    String?
+  referenceType  String?
+  adjustedBy     String
+  adjustedByUser User     @relation("AdjustedBy", fields: [adjustedBy], references: [id])
+  adjustmentDate DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([adjustedBy])
+}

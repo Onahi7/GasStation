@@ -10,8 +10,8 @@ Hardy Station is a comprehensive management system designed specifically for fil
 
 - **Frontend**: Next.js 14 with App Router, React, Tailwind CSS, shadcn/ui
 - **Backend**: Serverless functions via Next.js API routes and Server Actions
-- **Database**: PostgreSQL via Supabase
-- **Authentication**: Supabase Auth
+- **Database**: PostgreSQL via Neon Database
+- **Authentication**: NextAuth.js with Prisma Adapter
 - **Hosting**: Vercel
 
 ### Database Schema
@@ -86,65 +86,35 @@ The system implements a comprehensive role-based access control system with the 
 
 ### Authentication Flow
 
-The system uses Supabase Authentication with custom middleware for role-based access control. When a user logs in:
+The system uses NextAuth.js with the Prisma adapter for secure authentication and session management. When a user logs in:
 
-1. Credentials are verified against Supabase Auth
-2. User role is retrieved from the database
+1. Credentials are verified against the database using bcrypt
+2. User role and company information are added to the JWT session
 3. Middleware redirects to the appropriate dashboard based on role
 4. Protected routes check user role before rendering
 
 ### Data Flow
 
 1. Client components capture user input
-2. Server Actions process data and interact with the database
-3. Real-time updates via Supabase subscriptions where appropriate
+2. Server Actions process data and interact with the database through Prisma
+3. Real-time updates via React Server Components and useOptimistic hooks
 4. Server-side rendering for initial data loading
 
 ### Security Measures
 
 1. Server-side validation of all inputs
 2. Role-based access control at the middleware level
-3. Database RLS (Row Level Security) policies
-4. Secure authentication with Supabase
+3. Secure password hashing with bcrypt
+4. JWT-based session management with NextAuth.js
 5. Audit logging for sensitive operations
 
-## User Interface
+## Additional Features
 
-The UI is designed to be intuitive and responsive, with a focus on usability for staff members with varying levels of technical expertise. Key UI components include:
-
-1. Role-specific dashboards with relevant KPIs
-2. Forms for data entry with validation
-3. Tables for data display with sorting and filtering
-4. Charts and graphs for visual data representation
-5. Mobile-responsive design for use on various devices
-
-## Deployment Architecture
-
-The application is deployed on Vercel with the following configuration:
-
-1. Next.js application hosted on Vercel
-2. Supabase for database and authentication
-3. Environment variables for configuration
-4. Automatic deployments from the main branch
-
-## Extending the System
-
-The system is designed to be extensible. Common extensions include:
-
-1. Inventory management for shop items
-2. Customer loyalty programs
-3. Fleet management for business customers
-4. Integration with accounting software
-5. Mobile apps for field operations
-
-## Troubleshooting
-
-Common issues and their solutions:
-
-1. **Authentication issues**: Check Supabase configuration and environment variables
-2. **Database connection errors**: Verify Supabase URL and API keys
-3. **Role-based access issues**: Check user role assignments in the database
-4. **Data inconsistencies**: Use the audit logs to track changes
+1. Dark mode support
+2. Responsive design for mobile and desktop
+3. Progressive Web App (PWA) capabilities
+4. Export reports to PDF/Excel
+5. Email notifications for important events
 
 ## Support and Maintenance
 

@@ -1,116 +1,94 @@
 "use server"
 
-import { getSupabaseServerClient } from "@/lib/supabase/server"
+import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { redirect } from "next/navigation"
+import bcrypt from "bcryptjs"
+import { UserRole } from "@prisma/client"
 
-export async function getUsers() {
-  const supabase = getSupabaseServerClient()
-
-  const { data, error } = await supabase.from("users").select("*").order("full_name")
-
-  if (error) {
-    throw new Error(`Error fetching users: ${error.message}`)
+// Convert Prisma User to UI User
+function adaptUser(user: any) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    terminalId: user.terminalId,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
   }
+}
 
-  return data
+export async function getUsers(companyId?: string) {
+  const users = await prisma.user.findMany({
+    where: companyId ? { companyId } : {},
+    orderBy: { name: "asc" },
+  })
+  return users.map(adaptUser)
 }
 
 export async function getUserById(id: string) {
-  const supabase = getSupabaseServerClient()
-
-  const { data, error } = await supabase.from("users").select("*").eq("id", id).single()
-
-  if (error) {
-    throw new Error(`Error fetching user: ${error.message}`)
-  }
-
-  return data
+  const user = await prisma.user.findUnique({ where: { id } })
+  return user ? adaptUser(user) : null
 }
 
-export async function updateUser(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
-
-  const fullName = formData.get("full_name") as string
-  const phone = formData.get("phone") as string
-  const role = formData.get("role") as "admin" | "manager" | "finance" | "worker" | "auditor"
-  const isActive = formData.get("is_active") === "true"
-
-  const { data, error } = await supabase
-    .from("users")
-    .update({
-      full_name: fullName,
-      phone,
+export async function createUser({
+  name,
+  email,
+  password,
+  role = UserRole.COMPANY_ADMIN,
+  companyId,
+  terminalId,
+}: {
+  name: string
+  email: string
+  password: string
+  role?: UserRole
+  companyId?: string
+  terminalId?: string
+}) {
+  const hashedPassword = await bcrypt.hash(password, 10)
+  const user = await prisma.user.create({
+    data: {
+      name,
+      email,
+      password: hashedPassword,
       role,
-      is_active: isActive,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(`Error updating user: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    action: "update",
-    entity: "users",
-    entity_id: id,
-    details: { full_name: fullName, role, is_active: isActive },
+      companyId,
+      terminalId
+    },
   })
-
-  revalidatePath("/admin/users")
-  redirect("/admin/users")
+  revalidatePath("/company-admin/users")
+  return adaptUser(user)
 }
 
-export async function deactivateUser(id: string) {
-  const supabase = getSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("users")
-    .update({
-      is_active: false,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-
-  if (error) {
-    throw new Error(`Error deactivating user: ${error.message}`)
-  }
-
-  // Log the action
-  await supabase.from("audit_logs").insert({
-    action: "deactivate",
-    entity: "users",
-    entity_id: id,
+export async function updateUser(
+  id: string,
+  data: { name?: string; role?: UserRole; terminalId?: string }
+) {
+  const user = await prisma.user.update({
+    where: { id },
+    data: {
+      name: data.name,
+      role: data.role,
+      terminalId: data.terminalId
+    },
   })
-
-  revalidatePath("/admin/users")
-  redirect("/admin/users")
+  revalidatePath("/company-admin/users")
+  return adaptUser(user)
 }
 
-export async function resetUserPassword(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
+export async function deleteUser(id: string) {
+  await prisma.user.delete({ where: { id } })
+  revalidatePath("/company-admin/users")
+}
 
-  const password = formData.get("password") as string
-
-  // This requires admin privileges in Supabase
-  const { error } = await supabase.auth.admin.updateUserById(id, { password })
-
-  if (error) {
-    throw new Error(`Error resetting password: ${error.message}`)
-  }
-
-  // Log the action (without the password)
-  await supabase.from("audit_logs").insert({
-    action: "reset_password",
-    entity: "users",
-    entity_id: id,
+export async function resetUserPassword(id: string, password: string) {
+  const hashedPassword = await bcrypt.hash(password, 10)
+  const user = await prisma.user.update({
+    where: { id },
+    data: { password: hashedPassword },
   })
-
-  revalidatePath("/admin/users")
-  redirect("/admin/users")
+  revalidatePath("/company-admin/users")
+  return adaptUser(user)
 }
 

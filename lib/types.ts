@@ -9,7 +9,7 @@ export const PriceSchema = z.number().positive().max(100000)
 export const AmountSchema = z.number().positive().max(10000000)
 
 // Enums
-export const UserRole = z.enum(["admin", "manager", "finance", "worker", "auditor", "cashier"])
+export const UserRole = z.enum(["admin", "terminal_manager", "manager", "finance", "worker", "auditor", "cashier"])
 export const FuelType = z.enum(["PMS", "AGO", "DPK"])
 export const TransactionType = z.enum(["sale", "purchase", "adjustment", "credit_payment"])
 export const PaymentMethod = z.enum(["cash", "credit", "bank_transfer", "mobile_money"])

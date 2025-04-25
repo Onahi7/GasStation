@@ -1,112 +1,84 @@
 "use server"
 
-import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { ShiftSchema } from "@/lib/types"
 import { withErrorHandling } from "@/lib/utils"
 import { AuditLogger } from "@/lib/audit-logger"
+import { prisma } from "@/lib/db"
 
 export async function getShifts(workerId?: string, status?: string, terminalId?: string) {
-  const supabase = getSupabaseServerClient()
+  return withErrorHandling(async () => {
+    const shifts = await prisma.shift.findMany({
+      where: {
+        ...(workerId && { userId: workerId }),
+        ...(status && { status: status }),
+        ...(terminalId && { terminalId: terminalId })
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        startTime: 'desc'
+      }
+    })
 
-  let query = supabase
-    .from("shifts")
-    .select(`
-      *,
-      worker:users(id, full_name)
-    `)
-    .order("start_time", { ascending: false })
-
-  if (workerId) {
-    query = query.eq("worker_id", workerId)
-  }
-
-  if (status) {
-    query = query.eq("status", status)
-  }
-
-  if (terminalId) {
-    query = query.eq("terminal_id", terminalId)
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    throw new Error(`Error fetching shifts: ${error.message}`)
-  }
-
-  return data
-}
-
-export async function getShiftById(id: string) {
-  const supabase = getSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("shifts")
-    .select(`
-      *,
-      worker:users(id, full_name)
-    `)
-    .eq("id", id)
-    .single()
-
-  if (error) {
-    throw new Error(`Error fetching shift: ${error.message}`)
-  }
-
-  return data
+    return shifts
+  })
 }
 
 export async function getCurrentShift(workerId: string, terminalId: string) {
-  const supabase = getSupabaseServerClient()
+  return withErrorHandling(async () => {
+    const shift = await prisma.shift.findFirst({
+      where: {
+        userId: workerId,
+        terminalId: terminalId,
+        endTime: null
+      }
+    })
 
-  const { data, error } = await supabase
-    .from("shifts")
-    .select("*")
-    .eq("worker_id", workerId)
-    .eq("terminal_id", terminalId)
-    .eq("status", "active")
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(`Error fetching current shift: ${error.message}`)
-  }
-
-  return data
+    return shift
+  })
 }
 
 export async function getActiveShift(userId: string) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-    
-    const { data, error } = await supabase
-      .from("shifts")
-      .select("*, user:users(full_name)")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .single()
+    const shift = await prisma.shift.findFirst({
+      where: {
+        userId,
+        endTime: null
+      },
+      include: {
+        user: {
+          select: {
+            name: true
+          }
+        }
+      }
+    })
 
-    if (error) throw error
-    return data
+    return shift
   })
 }
 
 export async function startShift(formData: FormData) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-
     const userId = formData.get("userId") as string
     const terminalId = formData.get("terminalId") as string
     const notes = formData.get("notes") as string
 
     // Check if user already has an active shift
-    const { data: activeShift } = await supabase
-      .from("shifts")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .single()
+    const activeShift = await prisma.shift.findFirst({
+      where: {
+        userId,
+        endTime: null
+      }
+    })
 
     if (activeShift) {
       throw new Error("User already has an active shift")
@@ -114,23 +86,18 @@ export async function startShift(formData: FormData) {
 
     // Create new shift
     const shiftData = {
-      user_id: userId,
-      terminal_id: terminalId,
-      start_time: new Date().toISOString(),
-      status: "active",
-      notes,
+      userId,
+      terminalId,
+      startTime: new Date(),
+      notes
     }
 
     // Validate shift data
     ShiftSchema.parse(shiftData)
 
-    const { data: shift, error } = await supabase
-      .from("shifts")
-      .insert(shiftData)
-      .select()
-      .single()
-
-    if (error) throw error
+    const shift = await prisma.shift.create({
+      data: shiftData
+    })
 
     // Log audit entry
     await AuditLogger.log(
@@ -151,37 +118,31 @@ export async function startShift(formData: FormData) {
 
 export async function endShift(formData: FormData) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-
     const shiftId = formData.get("shiftId") as string
     const userId = formData.get("userId") as string
     const notes = formData.get("notes") as string
 
     // Get the shift to validate ownership
-    const { data: shift, error: shiftError } = await supabase
-      .from("shifts")
-      .select("*")
-      .eq("id", shiftId)
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .single()
+    const shift = await prisma.shift.findFirst({
+      where: {
+        id: shiftId,
+        userId,
+        endTime: null
+      }
+    })
 
-    if (shiftError || !shift) {
+    if (!shift) {
       throw new Error("Active shift not found")
     }
 
-    // Update shift end time and status
-    const { error: updateError } = await supabase
-      .from("shifts")
-      .update({
-        end_time: new Date().toISOString(),
-        status: "completed",
-        notes: notes || shift.notes,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", shiftId)
-
-    if (updateError) throw updateError
+    // Update shift end time
+    await prisma.shift.update({
+      where: { id: shiftId },
+      data: {
+        endTime: new Date(),
+        notes: notes || shift.notes
+      }
+    })
 
     // Log audit entry
     await AuditLogger.log(
@@ -201,68 +162,48 @@ export async function endShift(formData: FormData) {
 }
 
 async function completeShiftTasks(shiftId: string) {
-  const supabase = getSupabaseServerClient()
-
   // Close any open meter readings
-  const { error: readingsError } = await supabase
-    .from("meter_readings")
-    .update({ status: "closed", updated_at: new Date().toISOString() })
-    .eq("shift_id", shiftId)
-    .eq("status", "open")
-
-  if (readingsError) throw readingsError
+  await prisma.meterReading.updateMany({
+    where: {
+      shiftId,
+      status: "open"
+    },
+    data: {
+      status: "closed"
+    }
+  })
 
   // Verify any pending cash submissions
-  const { error: submissionsError } = await supabase
-    .from("cash_submissions")
-    .update({
-      verification_status: "verified",
-      updated_at: new Date().toISOString()
-    })
-    .eq("shift_id", shiftId)
-    .eq("verification_status", "pending")
-
-  if (submissionsError) throw submissionsError
+  await prisma.cashHandover.updateMany({
+    where: {
+      shiftId,
+      verified: false
+    },
+    data: {
+      verified: true
+    }
+  })
 }
 
 export async function getShiftSummary(shiftId: string) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
+    const shift = await prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: {
+        meterReadings: true,
+        cashHandovers: true,
+      }
+    })
 
-    // Get all related data for the shift
-    const [
-      { data: meterReadings },
-      { data: cashSubmissions },
-      { data: electronicPayments },
-      { data: expenses }
-    ] = await Promise.all([
-      supabase
-        .from("meter_readings")
-        .select("*")
-        .eq("shift_id", shiftId),
-      supabase
-        .from("cash_submissions")
-        .select("*")
-        .eq("shift_id", shiftId),
-      supabase
-        .from("electronic_payments")
-        .select("*")
-        .eq("shift_id", shiftId),
-      supabase
-        .from("expenses")
-        .select("*")
-        .eq("shift_id", shiftId)
-    ])
+    if (!shift) {
+      throw new Error("Shift not found")
+    }
 
     const summary = {
-      totalFuelSold: calculateTotalFuelSold(meterReadings || []),
-      totalCashCollected: calculateTotalCash(cashSubmissions || []),
-      totalElectronicPayments: calculateTotalElectronic(electronicPayments || []),
-      totalExpenses: calculateTotalExpenses(expenses || []),
-      meterReadings: meterReadings || [],
-      cashSubmissions: cashSubmissions || [],
-      electronicPayments: electronicPayments || [],
-      expenses: expenses || []
+      totalFuelSold: calculateTotalFuelSold(shift.meterReadings),
+      totalCashCollected: calculateTotalCash(shift.cashHandovers),
+      meterReadings: shift.meterReadings,
+      cashHandovers: shift.cashHandovers
     }
 
     return summary
@@ -271,26 +212,13 @@ export async function getShiftSummary(shiftId: string) {
 
 function calculateTotalFuelSold(readings: any[]) {
   return readings.reduce((total, reading) => {
-    if (reading.liters_sold) {
-      return total + reading.liters_sold
-    }
-    return total
+    return total + (reading.closing - reading.opening)
   }, 0)
 }
 
-function calculateTotalCash(submissions: any[]) {
-  return submissions.reduce((total, submission) => total + submission.amount, 0)
-}
-
-function calculateTotalElectronic(payments: any[]) {
-  return payments.reduce((total, payment) => total + payment.amount, 0)
-}
-
-function calculateTotalExpenses(expenses: any[]) {
-  return expenses.reduce((total, expense) => total + expense.amount, 0)
-}
-
-export async function createMeterReading(formData: FormData) {
-  throw new Error("createMeterReading is not implemented yet")
+function calculateTotalCash(handovers: any[]) {
+  return handovers.reduce((total, handover) => {
+    return total + handover.amount
+  }, 0)
 }
 

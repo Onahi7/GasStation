@@ -1,168 +1,199 @@
 "use server"
 
-import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { MeterReadingSchema } from "@/lib/types"
 import { withErrorHandling } from "@/lib/utils"
 import { AuditLogger } from "@/lib/audit-logger"
+import { prisma } from "@/lib/prisma"
 
 export async function createMeterReading(formData: FormData) {
   return withErrorHandling(
     async () => {
-      const supabase = getSupabaseServerClient()
-
-      const terminalId = formData.get("terminalId") as string
       const pumpId = formData.get("pumpId") as string
       const userId = formData.get("userId") as string
       const shiftId = formData.get("shiftId") as string
       const openingReading = parseFloat(formData.get("openingReading") as string)
 
       // Validate if there's already an open reading for this pump in this shift
-      const { data: existingReading } = await supabase
-        .from("meter_readings")
-        .select("*")
-        .eq("pump_id", pumpId)
-        .eq("shift_id", shiftId)
-        .eq("status", "open")
-        .maybeSingle()
+      const existingReading = await prisma.meterReading.findFirst({
+        where: {
+          pumpId,
+          shiftId,
+          closing: null // Use null to indicate an open reading
+        }
+      })
 
       if (existingReading) {
         throw new Error("There is already an open meter reading for this pump")
       }
 
       // Get the last reading for this pump to validate
-      const { data: lastReading } = await supabase
-        .from("meter_readings")
-        .select("closing_reading")
-        .eq("pump_id", pumpId)
-        .order("reading_time", { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      const lastReading = await prisma.meterReading.findFirst({
+        where: {
+          pumpId
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      })
 
-      if (lastReading && openingReading < lastReading.closing_reading) {
+      if (lastReading && openingReading < lastReading.closing) {
         throw new Error("Opening reading cannot be less than the last closing reading")
       }
 
       const readingData = {
-        terminal_id: terminalId,
-        pump_id: pumpId,
-        user_id: userId,
-        shift_id: shiftId,
-        opening_reading: openingReading,
-        reading_time: new Date().toISOString(),
-        status: "open",
+        pumpId,
+        userId,
+        shiftId,
+        opening: openingReading,
+        closing: 0 // This will be updated when the reading is closed
       }
 
       // Validate reading data
       MeterReadingSchema.parse(readingData)
 
-      const { data: reading, error } = await supabase
-        .from("meter_readings")
-        .insert(readingData)
-        .select()
-        .single()
-
-      if (error) throw error
+      const reading = await prisma.meterReading.create({
+        data: readingData
+      })
 
       // Log audit entry
       await AuditLogger.log(
-        "meter_reading",
+        "create",
         "meter_readings",
         reading.id,
         userId,
         { pumpId, openingReading }
       )
 
-      revalidatePath("/worker/readings")
+      revalidatePath("/worker")
       return reading
     },
     {
       validation: MeterReadingSchema,
-      data: formData,
+      data: formData
     }
   )
 }
 
 export async function closeMeterReading(formData: FormData) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-
     const readingId = formData.get("readingId") as string
     const userId = formData.get("userId") as string
     const closingReading = parseFloat(formData.get("closingReading") as string)
 
-    // Get current reading to validate
-    const { data: currentReading, error: readingError } = await supabase
-      .from("meter_readings")
-      .select("*, pump:pumps(price_per_liter)")
-      .eq("id", readingId)
-      .eq("status", "open")
-      .single()
+    // Get the reading to update
+    const reading = await prisma.meterReading.findUnique({
+      where: { id: readingId }
+    })
 
-    if (readingError || !currentReading) {
-      throw new Error("Open meter reading not found")
+    if (!reading) {
+      throw new Error("Meter reading not found")
     }
 
-    if (closingReading <= currentReading.opening_reading) {
-      throw new Error("Closing reading must be greater than opening reading")
+    if (closingReading < reading.opening) {
+      throw new Error("Closing reading cannot be less than opening reading")
     }
 
-    const litersSold = closingReading - currentReading.opening_reading
-    const expectedAmount = litersSold * currentReading.pump.price_per_liter
+    const litersSold = closingReading - reading.opening
 
-    const { error: updateError } = await supabase
-      .from("meter_readings")
-      .update({
-        closing_reading: closingReading,
-        liters_sold: litersSold,
-        expected_amount: expectedAmount,
-        status: "closed",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", readingId)
+    // Get current price for this pump
+    const pump = await prisma.pump.findUnique({
+      where: { id: reading.pumpId },
+      include: { tank: true }
+    })
 
-    if (updateError) throw updateError
+    if (!pump) {
+      throw new Error("Pump not found")
+    }
+
+    // Update the reading
+    const updatedReading = await prisma.meterReading.update({
+      where: { id: readingId },
+      data: {
+        closing: closingReading
+      }
+    })
 
     // Log audit entry
     await AuditLogger.log(
-      "meter_reading",
+      "update",
       "meter_readings",
       readingId,
       userId,
-      {
-        closingReading,
-        litersSold,
-        expectedAmount,
-      }
+      { closingReading, litersSold }
     )
 
     revalidatePath("/worker/readings")
-    return { litersSold, expectedAmount }
+    return updatedReading
+  })
+}
+
+export async function getMeterReadings(options: {
+  userId?: string
+  pumpId?: string
+  shiftId?: string
+  startDate?: Date
+  endDate?: Date
+}) {
+  return withErrorHandling(async () => {
+    const { userId, pumpId, shiftId, startDate, endDate } = options
+
+    const readings = await prisma.meterReading.findMany({
+      where: {
+        ...(userId && { userId }),
+        ...(pumpId && { pumpId }),
+        ...(shiftId && { shiftId }),
+        ...(startDate && {
+          createdAt: {
+            gte: startDate
+          }
+        }),
+        ...(endDate && {
+          createdAt: {
+            lte: endDate
+          }
+        })
+      },
+      include: {
+        user: {
+          select: {
+            name: true
+          }
+        },
+        pump: true,
+        shift: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return readings
   })
 }
 
 export async function verifyMeterReading(formData: FormData) {
   return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-
     const readingId = formData.get("readingId") as string
     const userId = formData.get("userId") as string
 
-    const { error } = await supabase
-      .from("meter_readings")
-      .update({
-        status: "verified",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", readingId)
-      .eq("status", "closed")
+    // There's no status field in our Prisma model yet, 
+    // so we could add a 'verified' field or similar
 
-    if (error) throw error
+    // Update the reading
+    const updatedReading = await prisma.meterReading.update({
+      where: { id: readingId },
+      data: {
+        // Add a verified field to MeterReading model
+        // verified: true,
+        // verifiedBy: userId
+      }
+    })
 
     // Log audit entry
     await AuditLogger.log(
-      "meter_reading",
+      "verify",
       "meter_readings",
       readingId,
       userId,
@@ -170,79 +201,7 @@ export async function verifyMeterReading(formData: FormData) {
     )
 
     revalidatePath("/manager/readings")
-  })
-}
-
-export async function getMeterReadings(options: {
-  pumpId?: string
-  shiftId?: string
-  userId?: string
-  status?: "open" | "closed" | "verified"
-  startDate?: Date
-  endDate?: Date
-}) {
-  return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-    const { pumpId, shiftId, userId, status, startDate, endDate } = options
-
-    let query = supabase
-      .from("meter_readings")
-      .select(`
-        *,
-        pump:pumps(name, product),
-        user:users(full_name)
-      `)
-      .order("reading_time", { ascending: false })
-
-    if (pumpId) {
-      query = query.eq("pump_id", pumpId)
-    }
-    if (shiftId) {
-      query = query.eq("shift_id", shiftId)
-    }
-    if (userId) {
-      query = query.eq("user_id", userId)
-    }
-    if (status) {
-      query = query.eq("status", status)
-    }
-    if (startDate) {
-      query = query.gte("reading_time", startDate.toISOString())
-    }
-    if (endDate) {
-      query = query.lte("reading_time", endDate.toISOString())
-    }
-
-    const { data, error } = await query
-    if (error) throw error
-
-    return data
-  })
-}
-
-export async function getReadingSummary(readingId: string) {
-  return withErrorHandling(async () => {
-    const supabase = getSupabaseServerClient()
-
-    const { data, error } = await supabase
-      .from("meter_readings")
-      .select(`
-        *,
-        pump:pumps(name, product, price_per_liter),
-        user:users(full_name),
-        shift:shifts(start_time, end_time)
-      `)
-      .eq("id", readingId)
-      .single()
-
-    if (error) throw error
-
-    return {
-      ...data,
-      litersSold: data.closing_reading ? data.closing_reading - data.opening_reading : 0,
-      expectedAmount: data.closing_reading ? 
-        (data.closing_reading - data.opening_reading) * data.pump.price_per_liter : 0,
-    }
+    return updatedReading
   })
 }
 

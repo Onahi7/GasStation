@@ -4,7 +4,6 @@ import { DashboardLayout } from "@/components/dashboard-layout"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { BarChart } from "@/components/charts/bar-chart"
 import { PieChart } from "@/components/charts/pie-chart"
 import { AreaChart } from "@/components/charts/area-chart"
@@ -12,6 +11,7 @@ import { StatCard } from "@/components/stat-card"
 import { Building2, Users, FuelIcon as GasPump, Wallet, TrendingUp } from 'lucide-react'
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { prisma } from "@/lib/prisma"
 
 export default async function CompanyAdminDashboard() {
   const user = await getUserRole()
@@ -20,44 +20,51 @@ export default async function CompanyAdminDashboard() {
     redirect("/unauthorized")
   }
   
-  const supabase = createServerSupabaseClient()
-  
   // Get company details
-  const { data: companyData, error: companyError } = await supabase
-    .from("companies")
-    .select("*")
-    .eq("id", user.companyId)
-    .single()
+  const companyData = await prisma.company.findUnique({
+    where: { id: user.companyId || undefined },
+    include: {
+      _count: {
+        select: {
+          terminals: true,
+          users: true,
+        }
+      }
+    }
+  })
   
-  if (companyError || !companyData) {
-    console.error("Error fetching company data:", companyError)
+  if (!companyData) {
+    console.error("Error fetching company data")
     redirect("/login")
   }
-  
-  // Get terminals count
-  const { count: terminalsCount, error: terminalsError } = await supabase
-    .from("terminals")
-    .select("*", { count: "exact", head: true })
-    .eq("company_id", user.companyId)
-  
-  // Get users count
-  const { count: usersCount, error: usersError } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true })
-    .eq("company_id", user.companyId)
-  
+
   // Get terminals with stats
-  const { data: terminals, error: terminalStatsError } = await supabase
-    .from("terminals")
-    .select(`
-      id,
-      name,
-      location,
-      pumps:pumps(count),
-      tanks:tanks(count),
-      users:users(count)
-    `)
-    .eq("company_id", user.companyId)
+  const terminals = await prisma.terminal.findMany({
+    where: { companyId: user.companyId || undefined },
+    include: {
+      _count: {
+        select: {
+          pumps: true,
+          tanks: true
+        }
+      },
+      users: {
+        select: {
+          id: true
+        }
+      }
+    }
+  })
+
+  // Transform terminal data to match the expected format
+  const transformedTerminals = terminals.map(terminal => ({
+    id: terminal.id,
+    name: terminal.name,
+    location: terminal.address || "",
+    pumps: { count: terminal._count?.pumps || 0 },
+    tanks: { count: terminal._count?.tanks || 0 },
+    users: { count: terminal.users?.length || 0 }
+  }))
   
   // Get sales data for charts (mock data for now)
   const salesData = [
@@ -71,10 +78,10 @@ export default async function CompanyAdminDashboard() {
   ]
   
   const productSalesData = [
-    { name: "PMS", value: 40 },
-    { name: "AGO", value: 30 },
-    { name: "DPK", value: 20 },
-    { name: "LPG", value: 10 },
+    { name: "PMS", value: 40, color: "#4CAF50" },
+    { name: "AGO", value: 30, color: "#2196F3" },
+    { name: "DPK", value: 20, color: "#FFC107" },
+    { name: "LPG", value: 10, color: "#9C27B0" },
   ]
   
   return (
@@ -103,35 +110,39 @@ export default async function CompanyAdminDashboard() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total Terminals"
-            value={terminalsCount || 0}
+            value={companyData._count?.terminals?.toString() || "0"}
             description="Active filling stations"
             icon={<Building2 className="h-6 w-6" />}
-            trend="+2 this month"
-            trendUp={true}
+            trend={{
+              value: 2,
+              isPositive: true
+            }}
           />
           <StatCard
             title="Total Users"
-            value={usersCount || 0}
+            value={companyData._count?.users?.toString() || "0"}
             description="Staff members"
             icon={<Users className="h-6 w-6" />}
-            trend="+5 this month"
-            trendUp={true}
+            trend={{
+              value: 5,
+              isPositive: true
+            }}
           />
           <StatCard
             title="Total Pumps"
-            value={terminals?.reduce((acc, terminal) => acc + terminal.pumps.count, 0) || 0}
+            value={(terminals.reduce((acc, terminal) => acc + (terminal._count?.pumps || 0), 0)).toString()}
             description="Across all terminals"
             icon={<GasPump className="h-6 w-6" />}
-            trend="No change"
-            trendUp={null}
           />
           <StatCard
             title="Monthly Revenue"
             value="₦12.5M"
             description="Across all terminals"
             icon={<Wallet className="h-6 w-6" />}
-            trend="+8% from last month"
-            trendUp={true}
+            trend={{
+              value: 8,
+              isPositive: true
+            }}
           />
         </div>
         
@@ -150,7 +161,11 @@ export default async function CompanyAdminDashboard() {
                   <CardDescription>Monthly revenue across all terminals</CardDescription>
                 </CardHeader>
                 <CardContent className="h-[300px]">
-                  <AreaChart data={salesData} />
+                  <AreaChart 
+                    data={salesData} 
+                    xKey="name"
+                    yKey="total"
+                  />
                 </CardContent>
               </Card>
               
@@ -172,10 +187,12 @@ export default async function CompanyAdminDashboard() {
               </CardHeader>
               <CardContent className="h-[300px]">
                 <BarChart 
-                  data={terminals?.map(terminal => ({
+                  data={transformedTerminals?.map(terminal => ({
                     name: terminal.name,
                     total: Math.floor(Math.random() * 5000) + 1000
-                  })) || []} 
+                  })) || []}
+                  xKey="name"
+                  yKey="total"
                 />
               </CardContent>
             </Card>
@@ -183,7 +200,7 @@ export default async function CompanyAdminDashboard() {
           
           <TabsContent value="terminals" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {terminals?.map((terminal) => (
+              {transformedTerminals?.map((terminal) => (
                 <Card key={terminal.id}>
                   <CardHeader className="pb-2">
                     <CardTitle>{terminal.name}</CardTitle>
@@ -240,7 +257,11 @@ export default async function CompanyAdminDashboard() {
                 <CardDescription>Monthly sales data across all terminals</CardDescription>
               </CardHeader>
               <CardContent className="h-[400px]">
-                <AreaChart data={salesData} />
+                <AreaChart 
+                  data={salesData} 
+                  xKey="name"
+                  yKey="total"
+                />
               </CardContent>
             </Card>
             
@@ -263,9 +284,9 @@ export default async function CompanyAdminDashboard() {
                 <CardContent className="h-[300px]">
                   <PieChart 
                     data={[
-                      { name: "Cash", value: 60 },
-                      { name: "POS", value: 25 },
-                      { name: "Transfer", value: 15 }
+                      { name: "Cash", value: 60, color: "#4CAF50" },
+                      { name: "POS", value: 25, color: "#2196F3" },
+                      { name: "Transfer", value: 15, color: "#FF5722" }
                     ]} 
                   />
                 </CardContent>

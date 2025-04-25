@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -9,20 +8,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { FuelIcon } from "lucide-react"
-import { createClient } from "@supabase/supabase-js"
 import Link from "next/link"
 
 export default function RegisterPage() {
-  const [fullName, setFullName] = useState("")
+  const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
-
-  // Create a Supabase client directly in the component
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,43 +31,29 @@ export default function RegisterPage() {
     }
 
     try {
-      // Register the user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          role: 'WORKER', // Default role for regular registration
+        }),
       })
 
-      if (authError) {
-        setError(authError.message)
-        return
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed')
       }
 
-      if (authData.user) {
-        // Insert the user into our custom users table
-        const { error: insertError } = await supabase.from("users").insert([
-          {
-            id: authData.user.id,
-            full_name: fullName,
-            email,
-            role: "worker", // Default role
-          },
-        ])
-
-        if (insertError) {
-          setError(insertError.message)
-          return
-        }
-
-        // Redirect to login page
-        router.push("/login?registered=true")
-      }
+      // Redirect to login page with success message
+      router.push('/login?registered=true')
     } catch (err: any) {
-      setError(err.message || "An error occurred during registration")
+      setError(err.message || 'An unexpected error occurred')
     } finally {
       setIsLoading(false)
     }
@@ -88,19 +69,22 @@ export default function RegisterPage() {
             </div>
           </div>
           <CardTitle className="text-2xl">Create an Account</CardTitle>
-          <CardDescription>Enter your information to create an account</CardDescription>
+          <CardDescription>Enter your details to register</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {error && <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded">{error}</div>}
+            {error && (
+              <div className="p-3 text-sm bg-red-100 border border-red-400 text-red-700 rounded">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
-              <Label htmlFor="fullName">Full Name</Label>
+              <Label htmlFor="name">Full Name</Label>
               <Input
-                id="fullName"
-                type="text"
+                id="name"
                 placeholder="John Doe"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
               />
             </div>
@@ -138,7 +122,7 @@ export default function RegisterPage() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating Account..." : "Create Account"}
+              {isLoading ? "Creating account..." : "Create account"}
             </Button>
             <div className="text-center text-sm">
               Already have an account?{" "}

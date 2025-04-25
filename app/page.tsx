@@ -6,7 +6,7 @@ export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
+        <div className="w-full px-4 flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
             <GasPump className="h-6 w-6" />
             <span className="text-xl font-bold">Hardy Station</span>
@@ -37,46 +37,50 @@ export default function LandingPage() {
       </header>
 
       {/* Hero section */}
-      <section className="w-full py-12 md:py-24 lg:py-32">
-        <div className="container px-4 md:px-6">
-          <div className="grid gap-6 lg:grid-cols-2 lg:gap-12">
+      <section className="w-full py-12 md:py-24 lg:py-32 bg-gradient-to-br from-primary/10 via-background to-muted">
+        <div className="w-full px-4 md:px-8">
+          <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 items-center max-w-[2000px] mx-auto">
             <div className="flex flex-col justify-center space-y-4">
               <div className="space-y-2">
-                <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl">
+                <div className="inline-block rounded-lg bg-primary/10 px-3 py-1 text-sm text-primary mb-4">
+                  New Features Available
+                </div>
+                <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl lg:text-7xl bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent animate-gradient">
                   Streamline Your Filling Station Operations
                 </h1>
-                <p className="max-w-[600px] text-muted-foreground md:text-xl">
+                <p className="max-w-[600px] text-muted-foreground md:text-xl/relaxed">
                   Hardy Station provides a comprehensive management system for filling stations, helping you track
                   sales, manage inventory, and optimize your business.
                 </p>
               </div>
-              <div className="flex flex-col gap-2 min-[400px]:flex-row">
+              <div className="flex flex-col gap-3 min-[400px]:flex-row">
                 <Link href="/register-company">
-                  <Button size="lg" className="gap-1">
+                  <Button size="lg" className="gap-2 shadow-lg hover:shadow-primary/50 transition-all duration-300">
                     Register Your Company
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
                 <Link href="#features">
-                  <Button size="lg" variant="outline">
+                  <Button size="lg" variant="outline" className="shadow-lg hover:shadow-muted transition-all duration-300">
                     Learn More
                   </Button>
                 </Link>
               </div>
             </div>
             <div className="flex items-center justify-center">
-              <div className="relative h-[350px] w-full overflow-hidden rounded-xl bg-muted/50">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/5"></div>
+              <div className="relative h-[400px] w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-background shadow-2xl transition-transform hover:scale-105 duration-300">
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <GasPump className="h-24 w-24 text-primary/40" />
+                  <GasPump className="h-32 w-32 text-primary animate-pulse" />
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
-      <section id="features" className="w-full bg-muted/50 py-12 md:py-24 lg:py-32">
-        <div className="container px-4 md:px-6">
+
+      {/* Features section */}
+      <section id="features" className="w-full bg-gradient-to-b from-background via-muted/50 to-background py-12 md:py-24 lg:py-32">
+        <div className="w-full px-4 md:px-8">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
               <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">Key Features</h2>
@@ -85,7 +89,7 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
-          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 py-12 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 py-12 md:grid-cols-3 lg:grid-cols-6 max-w-[2000px] mx-auto">
             <div className="flex flex-col items-center space-y-2 rounded-lg border p-6">
               <div className="rounded-full bg-primary/10 p-4">
                 <GasPump className="h-6 w-6 text-primary" />
@@ -143,11 +147,14 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-      <section id="pricing" className="w-full py-12 md:py-24 lg:py-32">
-        <div className="container px-4 md:px-6">
+
+      {/* Pricing section */}
+      <section id="pricing" className="w-full py-12 md:py-24 lg:py-32 relative">
+        <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-background to-muted/5"></div>
+        <div className="w-full px-4 md:px-8 relative">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
-              <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
+              <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl">
                 Simple, Transparent Pricing
               </h2>
               <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
@@ -155,115 +162,230 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
-          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 py-12 md:grid-cols-3">
-            <div className="flex flex-col rounded-lg border p-6">
+          <div className="grid grid-cols-1 gap-6 py-12 md:grid-cols-2 lg:grid-cols-4 max-w-[2000px] mx-auto">
+            {/* Basic Plan */}
+            <div className="flex flex-col rounded-2xl border bg-card p-8 shadow-lg hover:shadow-xl transition-all duration-300">
               <div className="space-y-2">
-                <h3 className="text-2xl font-bold">Starter</h3>
-                <p className="text-muted-foreground">Perfect for small filling stations</p>
+                <h3 className="text-2xl font-bold">Basic</h3>
+                <p className="text-muted-foreground">For new stations</p>
               </div>
               <div className="mt-4 flex items-baseline">
-                <span className="text-4xl font-bold">₦25,000</span>
+                <span className="text-4xl font-bold">₦30,000</span>
                 <span className="ml-1 text-muted-foreground">/month</span>
               </div>
-              <ul className="mt-6 space-y-2">
+              <ul className="mt-6 space-y-3">
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Up to 5 users</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Basic reporting</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Basic sales reporting</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>1 terminal</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Daily sales tracking</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Basic inventory management</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Email support</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Mobile app access</span>
                 </li>
               </ul>
               <div className="mt-6">
-                <Link href="/register-company">
-                  <Button className="w-full">Get Started</Button>
+                <Link href="/register-company" className="w-full">
+                  <Button variant="outline" className="w-full">Get Started</Button>
                 </Link>
               </div>
             </div>
-            <div className="flex flex-col rounded-lg border border-primary bg-primary/5 p-6">
+
+            {/* Standard Plan */}
+            <div className="flex flex-col rounded-2xl border bg-card p-8 shadow-lg hover:shadow-xl transition-all duration-300">
               <div className="space-y-2">
-                <h3 className="text-2xl font-bold">Professional</h3>
-                <p className="text-muted-foreground">For growing businesses</p>
+                <h3 className="text-2xl font-bold">Growth</h3>
+                <p className="text-muted-foreground">For growing stations</p>
               </div>
               <div className="mt-4 flex items-baseline">
-                <span className="text-4xl font-bold">₦45,000</span>
+                <span className="text-4xl font-bold">₦70,000</span>
                 <span className="ml-1 text-muted-foreground">/month</span>
               </div>
-              <ul className="mt-6 space-y-2">
+              <ul className="mt-6 space-y-3">
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Up to 15 users</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Advanced reporting</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Up to 3 terminals</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Priority support</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Shift management</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Data export</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Inventory alerts</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Priority email support</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Sales analytics</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Employee performance tracking</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Cash flow monitoring</span>
                 </li>
               </ul>
               <div className="mt-6">
-                <Link href="/register-company">
+                <Link href="/register-company" className="w-full">
                   <Button className="w-full">Get Started</Button>
                 </Link>
               </div>
             </div>
-            <div className="flex flex-col rounded-lg border p-6">
+
+            {/* Professional Plan - Highlighted */}
+            <div className="flex flex-col rounded-2xl border-2 border-primary bg-card p-8 shadow-2xl relative">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-1 rounded-full text-sm font-medium">
+                Most Popular
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-bold">Professional</h3>
+                <p className="text-muted-foreground">For established businesses</p>
+              </div>
+              <div className="mt-4 flex items-baseline">
+                <span className="text-4xl font-bold">₦105,000</span>
+                <span className="ml-1 text-muted-foreground">/month</span>
+              </div>
+              <ul className="mt-6 space-y-3">
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Up to 50 users</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Custom reporting</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Up to 8 terminals</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>24/7 phone support</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Advanced analytics</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Automated inventory management</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Multi-location management</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Real-time financial tracking</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Custom integrations</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Automated reports & alerts</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Business intelligence tools</span>
+                </li>
+              </ul>
+              <div className="mt-6">
+                <Link href="/register-company" className="w-full">
+                  <Button className="w-full bg-primary hover:bg-primary/90">Get Started</Button>
+                </Link>
+              </div>
+            </div>
+
+            {/* Enterprise Plan */}
+            <div className="flex flex-col rounded-2xl border bg-card p-8 shadow-lg hover:shadow-xl transition-all duration-300">
               <div className="space-y-2">
                 <h3 className="text-2xl font-bold">Enterprise</h3>
                 <p className="text-muted-foreground">For large operations</p>
               </div>
               <div className="mt-4 flex items-baseline">
-                <span className="text-4xl font-bold">₦85,000</span>
+                <span className="text-4xl font-bold">Custom</span>
                 <span className="ml-1 text-muted-foreground">/month</span>
               </div>
-              <ul className="mt-6 space-y-2">
+              <ul className="mt-6 space-y-3">
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Unlimited users</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Custom reporting</span>
-                </li>
-                <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
                   <span>Unlimited terminals</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>24/7 support</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>White-label solution</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>API access</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Dedicated account manager</span>
                 </li>
                 <li className="flex items-center">
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Custom integrations</span>
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Custom API access</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Enterprise SLA</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Advanced security features</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Custom development</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Priority feature requests</span>
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-primary" />
+                  <span>Onsite training</span>
                 </li>
               </ul>
               <div className="mt-6">
-                <Link href="/register-company">
-                  <Button className="w-full">Contact Sales</Button>
+                <Link href="/register-company" className="w-full">
+                  <Button variant="outline" className="w-full">Contact Sales</Button>
                 </Link>
               </div>
             </div>
@@ -271,7 +393,7 @@ export default function LandingPage() {
         </div>
       </section>
       <section id="testimonials" className="w-full bg-muted/50 py-12 md:py-24 lg:py-32">
-        <div className="container px-4 md:px-6">
+        <div className="w-full px-4 md:px-8">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
               <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">What Our Customers Say</h2>
@@ -280,7 +402,7 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
-          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 py-12 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 py-12 md:grid-cols-2 lg:grid-cols-3 max-w-[2000px] mx-auto">
             <div className="flex flex-col rounded-lg border p-6">
               <div className="flex items-center space-x-2">
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -366,7 +488,7 @@ export default function LandingPage() {
         </div>
       </section>
       <section id="contact" className="w-full py-12 md:py-24 lg:py-32">
-        <div className="container grid items-center gap-6 px-4 md:px-6 lg:grid-cols-2 lg:gap-10">
+        <div className="w-full px-4 md:px-8 grid items-center gap-6 lg:grid-cols-2 lg:gap-10 max-w-[2000px] mx-auto">
           <div className="space-y-2">
             <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">
               Ready to Transform Your Filling Station Management?
@@ -391,13 +513,13 @@ export default function LandingPage() {
         </div>
       </section>
       <footer className="w-full border-t bg-background py-6">
-        <div className="container flex flex-col items-center justify-between gap-4 md:flex-row">
+        <div className="w-full px-4 md:px-8 flex flex-col items-center justify-between gap-4 md:flex-row max-w-[2000px] mx-auto">
           <div className="flex items-center gap-2">
             <GasPump className="h-6 w-6" />
             <span className="text-lg font-bold">Hardy Station</span>
           </div>
           <p className="text-center text-sm text-muted-foreground md:text-left">
-            © 2023 Hardy Station. All rights reserved.
+            © 2025 Hardy Station. Hardy-Technologies All rights reserved.
           </p>
           <div className="flex gap-4">
             <Link href="#" className="text-sm text-muted-foreground hover:underline">

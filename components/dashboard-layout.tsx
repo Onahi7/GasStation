@@ -100,8 +100,8 @@ export function DashboardLayout({ children, role = "worker" }: DashboardLayoutPr
       case "manager":
         return [
           { href: "/manager", label: "Dashboard", icon: Home },
-          { href: "/manager/terminals", label: "Terminals", icon: Terminal },
           { href: "/manager/staff", label: "Staff", icon: Users },
+          { href: "/manager/terminals", label: "Terminals", icon: Terminal },
           { href: "/manager/payments", label: "Payments", icon: CreditCard },
           { href: "/manager/expenses", label: "Expenses", icon: Wallet },
           { href: "/manager/reports", label: "Reports", icon: BarChart3 },

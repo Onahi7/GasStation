@@ -8,19 +8,18 @@ Before you begin, ensure you have:
 
 1. A [GitHub](https://github.com) account
 2. A [Vercel](https://vercel.com) account
-3. A [Supabase](https://supabase.com) account
+3. A [Neon](https://neon.tech) account for the PostgreSQL database
 
-## Step 1: Set Up Supabase
+## Step 1: Set Up Neon Database
 
-1. Log in to your Supabase account and create a new project
-2. Note down the following credentials (you'll need them later):
-   - Supabase URL
-   - Supabase Anon Key
-   - Supabase Service Role Key
-
-3. Set up the database schema by running the following SQL in the Supabase SQL Editor:
+1. Log in to your Neon account and create a new project
+2. Create a new database and note down the connection string
+3. Set up the database schema by running the following SQL or use Prisma migrations:
 
 ```sql
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- Companies table
 CREATE TABLE companies (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -44,141 +43,104 @@ CREATE TABLE terminals (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Users table (extends Supabase auth)
+-- Users table
 CREATE TABLE users (
-  id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
-  full_name TEXT,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT,
   email TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'finance', 'cashier', 'worker')),
+  password TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'COMPANY_ADMIN', 'MANAGER', 'FINANCE', 'CASHIER', 'WORKER', 'DRIVER')),
   company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  terminal_id UUID REFERENCES terminals(id) ON DELETE SET NULL,
-  is_company_admin BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Tanks table
-CREATE TABLE tanks (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  capacity NUMERIC NOT NULL,
-  product TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+## Step 2: Clone and Configure the Project
 
--- Pumps table
-CREATE TABLE pumps (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  tank_id UUID REFERENCES tanks(id) ON DELETE SET NULL,
-  name TEXT NOT NULL,
-  product TEXT NOT NULL,
-  price_per_liter NUMERIC NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/hardy-station.git
+cd hardy-station
+```
 
--- Shifts table
-CREATE TABLE shifts (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-  end_time TIMESTAMP WITH TIME ZONE,
-  status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+2. Install dependencies:
+```bash
+npm install
+```
 
--- Meter readings table
-CREATE TABLE meter_readings (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  pump_id UUID REFERENCES pumps(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL,
-  opening_reading NUMERIC NOT NULL,
-  closing_reading NUMERIC,
-  liters_sold NUMERIC,
-  expected_amount NUMERIC,
-  reading_time TIMESTAMP WITH TIME ZONE NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('open', 'closed', 'verified')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+3. Create a `.env.local` file with the following variables:
+```env
+# Database Configuration
+DATABASE_URL=your_neon_database_url
 
--- Cash submissions table
-CREATE TABLE cash_submissions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL,
-  amount NUMERIC NOT NULL,
-  submission_time TIMESTAMP WITH TIME ZONE NOT NULL,
-  received_by UUID REFERENCES users(id) ON DELETE SET NULL,
-  verification_status TEXT NOT NULL CHECK (verification_status IN ('pending', 'verified', 'discrepancy')),
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+# NextAuth Configuration
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_generated_secret # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
--- Electronic payments table
-CREATE TABLE electronic_payments (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL,
-  amount NUMERIC NOT NULL,
-  payment_method TEXT NOT NULL CHECK (payment_method IN ('pos', 'transfer', 'other')),
-  reference_number TEXT,
-  payment_time TIMESTAMP WITH TIME ZONE NOT NULL,
-  verification_status TEXT NOT NULL CHECK (verification_status IN ('pending', 'verified', 'rejected')),
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+# Application Settings
+NEXT_PUBLIC_APP_NAME="Hardy Station Management"
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
 
--- Expenses table
-CREATE TABLE expenses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  amount NUMERIC NOT NULL,
-  category TEXT NOT NULL,
-  description TEXT,
-  receipt_url TEXT,
-  expense_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  approval_status TEXT NOT NULL CHECK (approval_status IN ('pending', 'approved', 'rejected')),
-  approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+4. Initialize Prisma and run migrations:
+```bash
+npx prisma generate
+npx prisma db push
+```
 
--- Cash handovers table
-CREATE TABLE cash_handovers (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  terminal_id UUID REFERENCES terminals(id) ON DELETE CASCADE,
-  from_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  to_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  amount NUMERIC NOT NULL,
-  handover_time TIMESTAMP WITH TIME ZONE NOT NULL,
-  verification_status TEXT NOT NULL CHECK (verification_status IN ('pending', 'verified', 'discrepancy')),
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+## Step 3: Deploy to Vercel
 
--- Audit logs table
-CREATE TABLE audit_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  action TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  entity_id UUID,
-  details JSONB,
-  ip_address TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+1. Push your code to GitHub
+2. Connect your GitHub repository to Vercel
+3. Add the environment variables in Vercel's project settings:
+   - DATABASE_URL
+   - NEXTAUTH_URL (use your production URL)
+   - NEXTAUTH_SECRET
+   - NEXT_PUBLIC_APP_NAME
+   - NEXT_PUBLIC_APP_URL (use your production URL)
+4. Deploy the project
+
+## Step 4: Create Initial Admin User
+
+1. Access your application's registration page
+2. Register a new company with admin user
+3. The first user will automatically be assigned the COMPANY_ADMIN role
+
+## Additional Configuration
+
+### Email Service (Optional)
+To enable email notifications, add these environment variables:
+```env
+SMTP_HOST=your_smtp_host
+SMTP_PORT=587
+SMTP_USER=your_smtp_username
+SMTP_PASSWORD=your_smtp_password
+EMAIL_FROM=noreply@hardystation.com
+```
+
+### File Upload (Optional)
+To enable file uploads for receipts and documents, configure your preferred storage solution (e.g., AWS S3, Cloudinary) and add the relevant environment variables.
+
+## Troubleshooting
+
+Common issues and their solutions:
+
+1. **Database Connection Issues**: 
+   - Verify your Neon database URL is correct
+   - Check that the database is accessible from your deployment region
+
+2. **Authentication Issues**:
+   - Ensure NEXTAUTH_SECRET is properly set
+   - Verify NEXTAUTH_URL matches your deployment URL
+
+3. **Deployment Problems**:
+   - Check Vercel build logs for errors
+   - Verify all environment variables are set correctly
+
+## Support and Updates
+
+For support:
+- Email: support@hardystation.com
+- Documentation: docs.hardystation.com
+- Community forum: community.hardystation.com
 

@@ -1,160 +1,168 @@
 "use server"
 
-import { getSupabaseServerClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
+import { prisma } from "@/lib/prisma"
+import { withErrorHandling } from "@/lib/utils"
+import { AuditLogger } from "@/lib/audit-logger"
 
 export async function getDrivers(companyId: string) {
-  const supabase = getSupabaseServerClient()
-  
-  const { data, error } = await supabase
-    .from("users")
-    .select(`
-      id,
-      full_name,
-      email,
-      phone,
-      employee_salaries (
-        base_salary,
-        effective_date,
-        is_active
-      )
-    `)
-    .eq("company_id", companyId)
-    .eq("role", "terminal_driver")
-
-  if (error) throw new Error(error.message)
-  return data
-}
-
-export async function getTrucks(companyId: string) {
-  const supabase = getSupabaseServerClient()
-  
-  const { data, error } = await supabase
-    .from("trucks")
-    .select("*")
-    .eq("company_id", companyId)
-    .eq("is_active", true)
-
-  if (error) throw new Error(error.message)
-  return data
+  return withErrorHandling(async () => {
+    const drivers = await prisma.user.findMany({
+      where: {
+        companyId,
+        role: "DRIVER"
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true
+      }
+    });
+    
+    return drivers;
+  });
 }
 
 export async function createDeliveryWaybill(formData: FormData) {
-  const supabase = getSupabaseServerClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error("Not authenticated")
-
-  const truckId = formData.get("truck_id") as string
-  const driverId = formData.get("driver_id") as string
-  const terminalId = formData.get("terminal_id") as string
-  const waybillNumber = formData.get("waybill_number") as string
-  const expectedVolume = Number(formData.get("expected_volume"))
-  const productType = formData.get("product_type") as string
-  const waybillImageUrl = formData.get("waybill_image_url") as string
-  const notes = formData.get("notes") as string
-
-  // Get company ID from user
-  const { data: userData } = await supabase
-    .from("users")
-    .select("company_id")
-    .eq("id", user.id)
-    .single()
-
-  if (!userData?.company_id) throw new Error("User not associated with a company")
-
-  const { error } = await supabase
-    .from("delivery_waybills")
-    .insert({
-      company_id: userData.company_id,
-      truck_id: truckId,
-      driver_id: driverId,
-      terminal_id: terminalId,
-      waybill_number: waybillNumber,
-      expected_volume: expectedVolume,
-      product_type: productType,
-      waybill_image_url: waybillImageUrl,
-      notes,
-      status: "pending"
-    })
-
-  if (error) throw new Error(error.message)
-  
-  revalidatePath("/manager/deliveries")
+  return withErrorHandling(async () => {
+    const driverId = formData.get("driverId") as string;
+    const terminalId = formData.get("terminalId") as string;
+    const waybillNumber = formData.get("waybillNumber") as string;
+    const expectedVolume = parseFloat(formData.get("expectedVolume") as string);
+    
+    // Validate driver exists
+    const driver = await prisma.user.findUnique({
+      where: {
+        id: driverId,
+        role: "DRIVER"
+      }
+    });
+    
+    if (!driver) {
+      throw new Error("Driver not found");
+    }
+    
+    // Validate terminal exists
+    const terminal = await prisma.terminal.findUnique({
+      where: { id: terminalId }
+    });
+    
+    if (!terminal) {
+      throw new Error("Terminal not found");
+    }
+    
+    // Create delivery waybill record
+    // Note: We need to add this model to Prisma schema
+    const waybill = await prisma.deliveryWaybill.create({
+      data: {
+        driverId,
+        terminalId,
+        waybillNumber,
+        expectedVolume,
+        status: "pending"
+      }
+    });
+    
+    // Log audit entry
+    await AuditLogger.log(
+      "create",
+      "delivery_waybills",
+      waybill.id,
+      driverId,
+      { waybillNumber, expectedVolume, terminalId }
+    );
+    
+    revalidatePath("/manager/deliveries");
+    return waybill;
+  });
 }
 
 export async function updateDeliveryStatus(id: string, formData: FormData) {
-  const supabase = getSupabaseServerClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error("Not authenticated")
-
-  const status = formData.get("status") as string
-  const deliveredVolume = Number(formData.get("delivered_volume"))
-  const arrivalTime = status === "delivered" ? new Date().toISOString() : null
-  
-  const { error } = await supabase
-    .from("delivery_waybills")
-    .update({
-      status,
-      delivered_volume: deliveredVolume,
-      arrival_time: arrivalTime
-    })
-    .eq("id", id)
-
-  if (error) throw new Error(error.message)
-
-  // If there's a volume discrepancy, create a salary adjustment
-  if (status === "delivered" && deliveredVolume) {
-    const { data: delivery } = await supabase
-      .from("delivery_waybills")
-      .select("expected_volume, driver_id")
-      .eq("id", id)
-      .single()
-
-    if (delivery) {
-      const discrepancy = deliveredVolume - delivery.expected_volume
+  return withErrorHandling(async () => {
+    const status = formData.get("status") as string;
+    const deliveredVolume = parseFloat(formData.get("deliveredVolume") as string);
+    const reviewerId = formData.get("reviewerId") as string;
+    
+    // Validate waybill exists
+    const waybill = await prisma.deliveryWaybill.findUnique({
+      where: { id }
+    });
+    
+    if (!waybill) {
+      throw new Error("Delivery waybill not found");
+    }
+    
+    // Update the waybill status
+    const updatedWaybill = await prisma.deliveryWaybill.update({
+      where: { id },
+      data: {
+        status,
+        deliveredVolume: status === "delivered" ? deliveredVolume : undefined,
+        arrivalTime: status === "delivered" ? new Date() : undefined
+      }
+    });
+    
+    // If there's a volume discrepancy, create a salary adjustment
+    if (status === "delivered" && deliveredVolume) {
+      const discrepancy = deliveredVolume - waybill.expectedVolume;
       if (Math.abs(discrepancy) > 0) {
-        await supabase
-          .from("salary_adjustments")
-          .insert({
-            employee_id: delivery.driver_id,
+        // Note: We need to add this model to Prisma schema
+        await prisma.salaryAdjustment.create({
+          data: {
+            employeeId: waybill.driverId,
             amount: Math.abs(discrepancy),
-            adjustment_type: discrepancy < 0 ? "shortage" : "excess",
+            adjustmentType: discrepancy < 0 ? "shortage" : "excess",
             reason: `Volume ${discrepancy < 0 ? "shortage" : "excess"} for delivery ${id}`,
-            reference_id: id,
-            reference_type: "delivery",
-            adjusted_by: user.id,
-            adjustment_date: new Date().toISOString().split("T")[0]
-          })
+            referenceId: id,
+            referenceType: "delivery",
+            adjustedBy: reviewerId,
+            adjustmentDate: new Date()
+          }
+        });
       }
     }
-  }
-  
-  revalidatePath("/manager/deliveries")
+    
+    // Log audit entry
+    await AuditLogger.log(
+      "update",
+      "delivery_waybills",
+      id,
+      reviewerId,
+      { status, deliveredVolume }
+    );
+    
+    revalidatePath("/manager/deliveries");
+    return updatedWaybill;
+  });
 }
 
 export async function getDeliveryWaybills(companyId: string, status?: string) {
-  const supabase = getSupabaseServerClient()
-  
-  let query = supabase
-    .from("delivery_waybills")
-    .select(`
-      *,
-      driver:users!driver_id(id, full_name),
-      truck:trucks(registration_number),
-      terminal:terminals(name)
-    `)
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false })
-
-  if (status) {
-    query = query.eq("status", status)
-  }
-
-  const { data, error } = await query
-  
-  if (error) throw new Error(error.message)
-  return data
+  return withErrorHandling(async () => {
+    const waybills = await prisma.deliveryWaybill.findMany({
+      where: {
+        terminal: {
+          companyId
+        },
+        ...(status && { status })
+      },
+      include: {
+        driver: {
+          select: {
+            name: true
+          }
+        },
+        terminal: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    return waybills;
+  });
 }

@@ -5,7 +5,8 @@ import { headers } from "next/headers"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { toast } from "@/hooks/use-toast"
-import { getSupabaseServerClient } from "./supabase/server"
+import { prisma } from "@/lib/prisma"
+import { getAuthErrorMessage } from "@/lib/auth-errors"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -474,20 +475,15 @@ export const validateBusinessHours = (date: Date) => {
 }
 
 export const validateShiftActive = async (userId: string) => {
-  // Check if user has an active shift
-  const supabase = getSupabaseServerClient()
-  const { data: activeShift } = await supabase
-    .from("shifts")
-    .select()
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .single()
+  const activeShift = await prisma.shift.findFirst({
+    where: {
+      userId: userId,
+      shiftStatus: "ACTIVE"
+    }
+  })
 
   if (!activeShift) {
-    throw new BusinessError(
-      "You must start a shift before performing this operation",
-      "NO_ACTIVE_SHIFT"
-    )
+    throw new BusinessError("No active shift found", "NO_ACTIVE_SHIFT")
   }
 
   return activeShift
@@ -498,22 +494,26 @@ export const validateSufficientBalance = async (
   tankId: string,
   amount: number
 ) => {
-  // Check if tank has sufficient balance
-  const supabase = getSupabaseServerClient()
-  const { data: tank } = await supabase
-    .from("tanks")
-    .select("current_level")
-    .eq("id", tankId)
-    .single()
+  const tank = await prisma.tank.findFirst({
+    where: {
+      id: tankId,
+      terminalId: terminalId
+    }
+  })
 
-  if (!tank || tank.current_level < amount) {
+  if (!tank) {
+    throw new BusinessError("Tank not found", "TANK_NOT_FOUND")
+  }
+
+  // Check if withdrawal would put tank below minimum level
+  if (tank.currentVolume - amount < tank.minVolume) {
     throw new BusinessError(
-      "Insufficient fuel balance in tank",
+      `Insufficient balance. Available: ${tank.currentVolume - tank.minVolume} L, Requested: ${amount} L`,
       "INSUFFICIENT_BALANCE"
     )
   }
 
-  return tank
+  return true
 }
 
 export const validateNoOverlappingShifts = async (
@@ -521,20 +521,30 @@ export const validateNoOverlappingShifts = async (
   startTime: Date,
   endTime: Date
 ) => {
-  // Check for overlapping shifts
-  const supabase = getSupabaseServerClient()
-  const { data: overlappingShift } = await supabase
-    .from("shifts")
-    .select()
-    .eq("user_id", userId)
-    .or(`and(start_time,lt,${endTime.toISOString()},end_time,gt,${startTime.toISOString()})`)
-    .maybeSingle()
+  // Check for any shifts that overlap with the given time range
+  const overlappingShifts = await prisma.shift.findMany({
+    where: {
+      userId: userId,
+      NOT: { shiftStatus: "CANCELLED" },
+      OR: [
+        {
+          startTime: { lte: endTime },
+          endTime: { gte: startTime }
+        },
+        {
+          startTime: { lte: endTime },
+          endTime: null
+        }
+      ]
+    }
+  })
 
-  if (overlappingShift) {
+  if (overlappingShifts.length > 0) {
     throw new BusinessError(
-      "This shift overlaps with an existing shift",
-      "OVERLAPPING_SHIFT"
+      "Cannot create shift that overlaps with existing shifts",
+      "OVERLAPPING_SHIFTS"
     )
   }
+
   return true
 }

@@ -9,6 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { AreaChart } from "@/components/charts/area-chart"
+import { FuelPriceManager } from "@/components/fuel-price-manager"
+import { TankMonitoringSystem } from "@/components/tank-monitoring-system"
+import { LoyaltyProgram } from "@/components/loyalty-program"
 import {
   Dialog,
   DialogContent,
@@ -164,12 +167,28 @@ export default function ManagerDashboard() {
           </div>
         </div>
 
-        <Tabs defaultValue="tanks">
-          <TabsList>
+        <Tabs defaultValue="tankMonitoring">
+          <TabsList className="mb-4">
+            <TabsTrigger value="tankMonitoring">Tank Monitoring</TabsTrigger>
+            <TabsTrigger value="fuelPricing">Fuel Pricing</TabsTrigger>
+            <TabsTrigger value="loyalty">Loyalty Program</TabsTrigger>
             <TabsTrigger value="tanks">Tank Management</TabsTrigger>
             <TabsTrigger value="pumps">Pump Configuration</TabsTrigger>
             <TabsTrigger value="creditors">Creditor Management</TabsTrigger>
           </TabsList>
+          
+          <TabsContent value="tankMonitoring" className="space-y-4">
+            <TankMonitoringSystem />
+          </TabsContent>
+          
+          <TabsContent value="fuelPricing" className="space-y-4">
+            <FuelPriceManager />
+          </TabsContent>
+          
+          <TabsContent value="loyalty" className="space-y-4">
+            <LoyaltyProgram />
+          </TabsContent>
+          
           <TabsContent value="tanks" className="space-y-4">
             <div className="flex justify-between">
               <h3 className="text-lg font-medium">Tank Overview</h3>

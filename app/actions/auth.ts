@@ -1,105 +1,121 @@
 "use server"
 
-import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
+import { prisma } from "@/lib/prisma"
+import { hash } from "bcryptjs"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
+import type { Prisma } from "@prisma/client"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 
-export async function signIn(formData: FormData) {
+export async function registerUser(formData: FormData) {
   const email = formData.get("email") as string
   const password = formData.get("password") as string
-  const redirectTo = (formData.get("redirectTo") as string) || "/dashboard"
+  const name = formData.get("name") as string
+  const role = formData.get("role") as string || "WORKER"
+  const companyId = formData.get("companyId") as string | null
 
-  const cookieStore = cookies()
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
-      },
-      set(name: string, value: string, options: any) {
-        cookieStore.set({ name, value, ...options })
-      },
-      remove(name: string, options: any) {
-        cookieStore.set({ name, value: "", ...options })
-      },
-    },
-  })
+  try {
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    })
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  })
+    if (existingUser) {
+      return { error: "User already exists" }
+    }
 
-  if (error) {
-    return { error: error.message }
+    // Hash the password
+    const hashedPassword = await hash(password, 12)
+
+    // Create the user
+    await prisma.user.create({
+      data: {
+        email,
+        name,
+        password: hashedPassword,
+        role,
+        companyId,
+      },
+    })
+
+    revalidatePath("/login")
+    redirect("/login?registered=true")
+  } catch (error) {
+    return { error: "Error creating user" }
   }
-
-  revalidatePath("/", "layout")
-  redirect(redirectTo)
 }
 
-export async function signOut() {
-  const cookieStore = cookies()
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
-      },
-      set(name: string, value: string, options: any) {
-        cookieStore.set({ name, value, ...options })
-      },
-      remove(name: string, options: any) {
-        cookieStore.set({ name, value: "", ...options })
-      },
-    },
-  })
+export async function registerCompany(formData: FormData) {
+  const name = formData.get("name") as string
+  const email = formData.get("email") as string
+  const password = formData.get("password") as string
+  const companyName = formData.get("companyName") as string
+  const address = formData.get("address") as string
+  const phone = formData.get("phone") as string
 
-  await supabase.auth.signOut()
-  revalidatePath("/", "layout")
-  redirect("/login")
+  try {
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    })
+
+    if (existingUser) {
+      return { error: "User already exists" }
+    }
+
+    // Hash the password
+    const hashedPassword = await hash(password, 12)
+
+    // Create company and admin user in a transaction
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Create the company
+      const company = await tx.company.create({
+        data: {
+          name: companyName,
+          address,
+          phone,
+          email,
+        },
+      })
+
+      // Create the company admin user
+      await tx.user.create({
+        data: {
+          email,
+          name,
+          password: hashedPassword,
+          role: "COMPANY_ADMIN",
+          companyId: company.id,
+        },
+      })
+    })
+
+    revalidatePath("/login")
+    redirect("/login?registered=true")
+  } catch (error) {
+    return { error: "Error creating company and user" }
+  }
 }
 
 export async function getUserRole() {
-  const cookieStore = cookies()
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
-      },
-      set(name: string, value: string, options: any) {
-        cookieStore.set({ name, value, ...options })
-      },
-      remove(name: string, options: any) {
-        cookieStore.set({ name, value: "", ...options })
-      },
-    },
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return null
+  
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      role: true,
+      companyId: true
+    }
   })
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return null
-  }
-
-  const { data, error } = await supabase
-    .from("users")
-    .select("role, company_id, terminal_id, is_company_admin")
-    .eq("id", user.id)
-    .single()
-
-  if (error || !data) {
-    return null
-  }
+  
+  if (!user) return null
 
   return {
-    id: user.id,
-    email: user.email,
-    role: data.role,
-    companyId: data.company_id,
-    terminalId: data.terminal_id,
-    isCompanyAdmin: data.is_company_admin,
+    ...user,
+    isCompanyAdmin: user.role === "COMPANY_ADMIN"
   }
 }
 

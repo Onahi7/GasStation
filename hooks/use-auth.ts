@@ -1,48 +1,39 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useSession, signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { getSupabaseClient } from "@/lib/supabase-client"
-import type { User } from "@supabase/supabase-js"
 
-export function useAuth() {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+export const useAuth = () => {
+  const { data: session, status } = useSession()
   const router = useRouter()
-  const supabase = getSupabaseClient()
 
-  useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      setUser(user)
-      setIsLoading(false)
-    }
+  const signIn = async (email: string, password: string) => {
+    try {
+      const result = await nextAuthSignIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      })      if (result?.error) {
+        throw new Error(result.error)
+      }
 
-    getUser()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-      setIsLoading(false)
+      router.push("/portal")
       router.refresh()
-    })
-
-    return () => {
-      subscription.unsubscribe()
+      return { success: true }
+    } catch (error: any) {
+      return { error: error.message }
     }
-  }, [supabase, router])
+  }
 
   const signOut = async () => {
-    await supabase.auth.signOut()
-    router.push("/login")
+    await nextAuthSignOut({ redirect: true, callbackUrl: "/login" })
   }
 
   return {
-    user,
-    isLoading,
+    user: session?.user,
+    isLoading: status === "loading",
+    isAuthenticated: status === "authenticated",
+    signIn,
     signOut,
   }
 }
